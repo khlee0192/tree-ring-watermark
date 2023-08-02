@@ -185,7 +185,7 @@ def main(args):
             clip_scores_w.append(w_sim)
 
     # LKH
-    single_improvement = np.array(single_improvement)
+    single_improvement = np.array(single_improvement.cpu())
     print(f"improvement mean : {np.mean(single_improvement)}")
     print(f"improvement std : {np.std(single_improvement)}")
 
