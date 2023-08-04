@@ -1,8 +1,11 @@
 from functools import partial
 from typing import Callable, List, Optional, Union, Tuple
 import copy
+import gc
+import matplotlib.pyplot as plt
 
 import torch
+from torchvision.transforms.functional import to_pil_image
 from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
 
 from diffusers.models import AutoencoderKL, UNet2DConditionModel
@@ -12,7 +15,6 @@ from diffusers.pipelines.stable_diffusion.safety_checker import \
 from diffusers.schedulers import DDIMScheduler,PNDMScheduler, LMSDiscreteScheduler
 
 from modified_stable_diffusion import ModifiedStableDiffusionPipeline
-
 
 ### credit to: https://github.com/cccntu/efficient-prompt-to-prompt
 
@@ -184,9 +186,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 alpha_tm1=alpha_prod_t_prev,
                 eps_xt=noise_pred,
             )
+
         return latents
 
-    @torch.enable_grad()
     def edcorrector(self, x, encoder_hidden_states):
         """
         INPUT
@@ -196,29 +198,38 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         Goal : minimize norm(e(x)-z) and norm(d(z)-x)
         """
-        unet_copy = copy.deepcopy(self.unet)
-        unet_copy = unet_copy.half()
+        input = x.clone().requires_grad_(True)
+        #decoder = copy.deepcopy(self.decode_image)
+
+        # unet_copy = copy.deepcopy(self.unet)
+        # unet_copy = unet_copy.half()
+        
+        # decoder_copy = copy.deepcopy(self.decode_image)
         z = self.get_image_latents(x).clone() # initial z
         z.requires_grad_(True)
-        encoder_hidden_states = encoder_hidden_states.clone().requires_grad_(True)
+        # encoder_hidden_states = encoder_hidden_states.clone().requires_grad_(True)
 
         loss_function = torch.nn.MSELoss(reduction='sum')
+<<<<<<< HEAD
         optimizer = torch.optim.SGD([z], lr=5e-3)
+=======
+        optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
+>>>>>>> newnew
 
-        t = torch.Tensor([0]).to(z.device)
-        s = torch.Tensor([20]).to(z.device)
-
-        z_comp = self.get_image_latents(x).clone().half()
+        #t = torch.Tensor([0]).to(z.device)
+        
+        
+        #s = torch.Tensor([100]).to(z.device)
 
         for i in range(1000):
-            out = unet_copy(z, s, encoder_hidden_states).sample
-            out = self.scheduler.convert_model_output(out, 20, z)
-            z_pred = self.scheduler.dpm_solver_first_order_update(out, 20, 0, z)
+            x_pred = self.decode_image_for_gradient(z)
+            loss = loss_function(x_pred, input)
 
-            loss = loss_function(z_pred, z_comp)
-            print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
+            if i%10==0:
+                print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
             if loss.item() < 0.001:
                 break
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -227,6 +238,14 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
+        scaled_latents = 1 / 0.18215 * latents
+        image = [
+            self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
+        ]
+        image = torch.cat(image, dim=0)
+        return image
+
+    def decode_image_for_gradient(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
