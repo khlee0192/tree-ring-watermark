@@ -210,11 +210,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         # encoder_hidden_states = encoder_hidden_states.clone().requires_grad_(True)
 
         loss_function = torch.nn.MSELoss(reduction='sum')
-<<<<<<< HEAD
-        optimizer = torch.optim.SGD([z], lr=5e-3)
-=======
         optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
->>>>>>> newnew
 
         #t = torch.Tensor([0]).to(z.device)
         
