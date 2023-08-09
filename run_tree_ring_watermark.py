@@ -29,6 +29,58 @@ def compare_latents(z, z_comp):
     diff = z - z_comp
     return torch.norm(diff)/torch.norm(z_comp)
 
+def plot_compare(latent, modified_latent, pipe, title):
+    # Latent, pipe -> draw image, maybe good to make clean code
+        # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
+    img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
+    img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
+    img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
+
+    #img = outputs_0.cpu().permute(0, 2, 3, 1)
+    #img_wo_correction = outputs_1.images[0]
+    #img_w_correction = outputs_2.images[0]
+
+    plt.figure()
+    plt.subplot(1,3,1)
+    plt.imshow(to_pil_image(img[0]))
+    plt.title("z")
+    plt.subplot(1,3,2)
+    plt.imshow(to_pil_image(img_wo_correction[0]))
+    plt.title("E(D(z))")
+    plt.subplot(1,3,3)
+    plt.imshow(to_pil_image(img_w_correction[0]))
+    plt.title("E*(D(z))")
+    plt.savefig(title)
+    #plt.show()
+
+def plot_compare_errormap(latent, modified_latent, pipe, title):
+    # Latent, pipe -> draw image, maybe good to make clean code
+        # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
+    img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
+    img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
+    img_w_correction = (pipe.decode_image(modified_latent)/2+0.5).clamp(0, 1)
+
+    img = img[0]
+    error1 = (img_wo_correction[0]-img)
+    error2 = (img_w_correction[0]-img)
+
+    #img = outputs_0.cpu().permute(0, 2, 3, 1)
+    #img_wo_correction = outputs_1.images[0]
+    #img_w_correction = outputs_2.images[0]
+
+    plt.figure()
+    plt.subplot(1,3,1)
+    plt.imshow(to_pil_image(img).convert("L"))
+    plt.title("z")
+    plt.subplot(1,3,2)
+    plt.imshow(to_pil_image(error1).convert("L"))
+    plt.title("E(D(z))")
+    plt.subplot(1,3,3)
+    plt.imshow(to_pil_image(error2).convert("L"))
+    plt.title("E*(D(z))")
+    #plt.savefig(title)
+    plt.show()
+
 def main(args):
     table = None
     if args.with_tracking:
@@ -70,7 +122,12 @@ def main(args):
 
     accuracy = []
 
+    ind = 0
     for i in tqdm(range(args.start, args.end)):
+        ind = ind + 1
+        if ind==10:
+            break
+
         seed = i + args.gen_seed
         
         current_prompt = dataset[i][prompt_key]
@@ -90,6 +147,27 @@ def main(args):
             )
         orig_image_no_w = outputs_no_w.images[0] # image generated at the first, without WM
         
+        
+        # Starting latent analysis
+        orig_image = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        test = pipe.get_image_latents(orig_image, sample=False)
+
+        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
+        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
+        corrected_error = compare_latents(test, image_latents_w_modified)
+        single_improvement = (original_error-corrected_error)/original_error*100
+
+        print(f"compare error : {original_error}")
+        print(f"error after optimization : {corrected_error}")
+        print(f"Improvement : {single_improvement}%")
+        
+        accuracy.append(single_improvement)
+
+        plot_name = './data/'+str(i)+'.png'
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
+    
+
+        """asdfasdf
         # generation with watermarking
         if init_latents_no_w is None:
             set_random_seed(seed)
@@ -140,42 +218,24 @@ def main(args):
             num_inference_steps=args.test_num_inference_steps,
         )
 
-        # Starting latent analysis
-        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(image_latents_w), text_embeddings) # input as the image
-        original_error = compare_latents(image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)))
-        corrected_error = compare_latents(image_latents_w, image_latents_w_modified)
+        
+        test = image_latents_w
+
+        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
+        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
+        corrected_error = compare_latents(test, image_latents_w_modified)
         single_improvement = (original_error-corrected_error)/original_error*100
 
         print(f"compare error : {original_error}")
         print(f"error after optimization : {corrected_error}")
         print(f"Improvement : {single_improvement}%")
         
+        plot_name = './data/'+str(i)+'.png'
+
         accuracy.append(single_improvement)
-
-        # Latent, pipe -> draw image, maybe good to make clean code
-        """
-        # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
-        img = (pipe.decode_image(image_latents_w)/2+0.5).clamp(0, 1)
-        img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(image_latents_w)))/2+0.5).clamp(0, 1)
-        img_w_correction = (pipe.decode_image(image_latents_w_modified)/2+0.5).clamp(0, 1)
-
-        #img = outputs_0.cpu().permute(0, 2, 3, 1)
-        #img_wo_correction = outputs_1.images[0]
-        #img_w_correction = outputs_2.images[0]
-
-        plt.figure()
-        plt.subplot(1,3,1)
-        plt.imshow(to_pil_image(img[0]))
-        plt.title("z")
-        plt.subplot(1,3,2)
-        plt.imshow(to_pil_image(img_wo_correction[0]))
-        plt.title("E(D(z))")
-        plt.subplot(1,3,3)
-        plt.imshow(to_pil_image(img_w_correction[0]))
-        plt.title("E*(D(z))")
-        plt.show()
-        """
-
+        #plot_compare(test, pipe, plot_name)
+        
+        
         # eval
         no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
 
@@ -203,11 +263,19 @@ def main(args):
 
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
+        asdfasdf"""
+        
 
     # LKH
-    single_improvement = np.array(single_improvement.cpu())
-    print(f"improvement mean : {np.mean(single_improvement)}")
-    print(f"improvement std : {np.std(single_improvement)}")
+    accuracy_list = []
+    for i in accuracy:
+        accuracy_list.append(i.cpu().detach().numpy())
+    accuracy_list = np.array(accuracy_list, dtype=np.float64)
+    
+    print(f"accuracy mean : {accuracy_list.mean()}")
+    print(f"accuracy min : {accuracy_list.min()}")
+    print(f"accuracy max : {accuracy_list.max()}")
+    print(f"accuracy var : {accuracy_list.var()}")
 
     # roc
     preds = no_w_metrics +  w_metrics

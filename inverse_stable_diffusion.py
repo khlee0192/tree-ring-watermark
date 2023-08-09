@@ -198,30 +198,29 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         Goal : minimize norm(e(x)-z) and norm(d(z)-x)
         """
-        input = x.clone().requires_grad_(True)
-        #decoder = copy.deepcopy(self.decode_image)
+        input = x.clone().requires_grad_(True).float()
 
-        # unet_copy = copy.deepcopy(self.unet)
-        # unet_copy = unet_copy.half()
-        
-        # decoder_copy = copy.deepcopy(self.decode_image)
-        z = self.get_image_latents(x).clone() # initial z
+        z = self.get_image_latents(x).clone().float() # initial z
         z.requires_grad_(True)
-        # encoder_hidden_states = encoder_hidden_states.clone().requires_grad_(True)
 
         loss_function = torch.nn.MSELoss(reduction='sum')
-        optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
+        losses = []
 
-        #t = torch.Tensor([0]).to(z.device)
+        ## SGD : improvement with 63.75% accuracy
+        #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
         
-        
-        #s = torch.Tensor([100]).to(z.device)
+        ## Current best
+        optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[300], gamma=0.1)
+
+        ## Adam, RMSprop : testing - loss to nan
+        #optimizer = torch.optim.Adam([z], lr=1e-2)
 
         for i in range(1000):
-            x_pred = self.decode_image_for_gradient(z)
+            x_pred = self.decode_image_for_gradient_float(z)
             loss = loss_function(x_pred, input)
-
-            if i%10==0:
+            #losses.append(loss.detach().item())
+            if i%100==0:
                 print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
             if loss.item() < 0.001:
                 break
@@ -229,7 +228,25 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
+        #plt.plot(losses)
+
+        """ original
+        for i in range(1000):
+            x_pred = self.decode_image_for_gradient(z).float()
+            loss = loss_function(x_pred, input)
+
+            if i%100==0:
+                print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
+            if loss.item() < 0.001:
+                break
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+        """
         return z.half()
 
     @torch.inference_mode()
@@ -245,6 +262,15 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         scaled_latents = 1 / 0.18215 * latents
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
+        ]
+        image = torch.cat(image, dim=0)
+        return image
+
+    def decode_image_for_gradient_float(self, latents: torch.FloatTensor, **kwargs):
+        scaled_latents = 1 / 0.18215 * latents
+        vae = copy.deepcopy(self.vae).float()
+        image = [
+            vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
         ]
         image = torch.cat(image, dim=0)
         return image

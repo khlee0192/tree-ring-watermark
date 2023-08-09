@@ -1,3 +1,8 @@
+# lkh
+/images
+/plot_image_latents_w
+/plot_orig_image_no_w
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
