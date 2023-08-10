@@ -210,13 +210,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
         
         ## Current best
-        optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[300], gamma=0.1)
+        #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.95)
+        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 1000, 3000], gamma=0.1)
 
         ## Adam, RMSprop : testing - loss to nan
-        #optimizer = torch.optim.Adam([z], lr=1e-2)
+        optimizer = torch.optim.Adam([z], lr=1e-3)
 
-        for i in range(1000):
+        for i in range(5000):
             x_pred = self.decode_image_for_gradient_float(z)
             loss = loss_function(x_pred, input)
             #losses.append(loss.detach().item())
@@ -228,7 +228,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            #scheduler.step()
 
         #plt.plot(losses)
 

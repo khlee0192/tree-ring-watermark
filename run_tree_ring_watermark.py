@@ -125,8 +125,8 @@ def main(args):
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         ind = ind + 1
-        if ind==10:
-            break
+        # if ind==10:
+        #     break
 
         seed = i + args.gen_seed
         
@@ -164,7 +164,7 @@ def main(args):
         accuracy.append(single_improvement)
 
         plot_name = './data/'+str(i)+'.png'
-        #plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
+        plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
     
 
         """asdfasdf
