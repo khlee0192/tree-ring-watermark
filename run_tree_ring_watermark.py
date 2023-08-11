@@ -164,7 +164,7 @@ def main(args):
         accuracy.append(single_improvement)
 
         plot_name = './data/'+str(i)+'.png'
-        plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
     
 
         """asdfasdf
