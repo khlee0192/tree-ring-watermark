@@ -191,12 +191,15 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     def edcorrector(self, x, encoder_hidden_states):
         """
+        edcorrector calculates latents z of the image x by solving optimization problem ||E(x)-z||,
+        not by directly encoding with VAE encoder. "Decoder inversion"
+
         INPUT
         x : image data (1, 3, 512, 512) -> given data
         OUTPUT
         z : modified latent data (1, 4, 64, 64)
 
-        Goal : minimize norm(e(x)-z) and norm(d(z)-x)
+        Goal : minimize norm(e(x)-z), working on adding regularizer
         """
         input = x.clone().requires_grad_(True).float()
 
@@ -208,12 +211,12 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         ## SGD : improvement with 63.75% accuracy
         #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
+        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 1000, 3000], gamma=0.1)
         
         ## Current best
-        #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.95)
-        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 1000, 3000], gamma=0.1)
+        #optimizer = torch.optim.Adam([z], lr=1e-3)
 
-        ## Adam, RMSprop : testing - loss to nan
+        ## Adjusting Adam
         optimizer = torch.optim.Adam([z], lr=1e-3)
 
         for i in range(5000):
@@ -231,34 +234,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             #scheduler.step()
 
         #plt.plot(losses)
-
-        """ original
-        for i in range(1000):
-            x_pred = self.decode_image_for_gradient(z).float()
-            loss = loss_function(x_pred, input)
-
-            if i%100==0:
-                print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
-            if loss.item() < 0.001:
-                break
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-        """
         return z.half()
 
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
-        scaled_latents = 1 / 0.18215 * latents
-        image = [
-            self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
-        ]
-        image = torch.cat(image, dim=0)
-        return image
-
-    def decode_image_for_gradient(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))

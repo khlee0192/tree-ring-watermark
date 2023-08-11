@@ -7,7 +7,7 @@ from sklearn import metrics
 import matplotlib.pyplot as plt
 
 import torch
-from torchvision.transforms.functional import to_pil_image
+from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 
 #from inverse_stable_diffusion_smh import InversableStableDiffusionPipeline
 from inverse_stable_diffusion import InversableStableDiffusionPipeline
@@ -16,7 +16,6 @@ from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
 from io_utils import *
-from noise_optimizer import edcorrector
 
 def compare_latents(z, z_comp):
     """
@@ -36,19 +35,15 @@ def plot_compare(latent, modified_latent, pipe, title):
     img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
     img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
 
-    #img = outputs_0.cpu().permute(0, 2, 3, 1)
-    #img_wo_correction = outputs_1.images[0]
-    #img_w_correction = outputs_2.images[0]
-
     plt.figure()
     plt.subplot(1,3,1)
-    plt.imshow(to_pil_image(img[0]))
+    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
     plt.title("z")
     plt.subplot(1,3,2)
-    plt.imshow(to_pil_image(img_wo_correction[0]))
+    plt.imshow(rgb_to_grayscale(to_pil_image(img_wo_correction[0])))
     plt.title("E(D(z))")
     plt.subplot(1,3,3)
-    plt.imshow(to_pil_image(img_w_correction[0]))
+    plt.imshow(rgb_to_grayscale(to_pil_image(img_w_correction[0])))
     plt.title("E*(D(z))")
     plt.savefig(title)
     #plt.show()
@@ -64,22 +59,18 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
     error1 = (img_wo_correction[0]-img)
     error2 = (img_w_correction[0]-img)
 
-    #img = outputs_0.cpu().permute(0, 2, 3, 1)
-    #img_wo_correction = outputs_1.images[0]
-    #img_w_correction = outputs_2.images[0]
-
     plt.figure()
     plt.subplot(1,3,1)
-    plt.imshow(to_pil_image(img).convert("L"))
+    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
     plt.title("z")
     plt.subplot(1,3,2)
-    plt.imshow(to_pil_image(error1).convert("L"))
+    plt.imshow(rgb_to_grayscale(to_pil_image(error1)))
     plt.title("E(D(z))")
     plt.subplot(1,3,3)
-    plt.imshow(to_pil_image(error2).convert("L"))
+    plt.imshow(rgb_to_grayscale(to_pil_image(error2)))
     plt.title("E*(D(z))")
-    #plt.savefig(title)
-    plt.show()
+    plt.savefig(title)
+    #plt.show()
 
 def main(args):
     table = None
@@ -125,7 +116,7 @@ def main(args):
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         ind = ind + 1
-        # if ind==10:
+        # if ind==10: Test optimization on 10 images
         #     break
 
         seed = i + args.gen_seed
@@ -164,11 +155,13 @@ def main(args):
         accuracy.append(single_improvement)
 
         plot_name = './data/'+str(i)+'.png'
-        #plot_compare_errormap(test, image_latents_w_modified, pipe, plot_name)
+        errorplot_name = './errordata/'+str(i)+'.png'
+        plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
     
-
-        """asdfasdf
-        # generation with watermarking
+        # 170~249 is annotated to make experiment fast
+        """
+        # generation with watermark
         if init_latents_no_w is None:
             set_random_seed(seed)
             init_latents_w = pipe.get_random_latents()
@@ -217,25 +210,8 @@ def main(args):
             guidance_scale=1,
             num_inference_steps=args.test_num_inference_steps,
         )
-
         
-        test = image_latents_w
-
-        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
-        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
-        corrected_error = compare_latents(test, image_latents_w_modified)
-        single_improvement = (original_error-corrected_error)/original_error*100
-
-        print(f"compare error : {original_error}")
-        print(f"error after optimization : {corrected_error}")
-        print(f"Improvement : {single_improvement}%")
-        
-        plot_name = './data/'+str(i)+'.png'
-
-        accuracy.append(single_improvement)
-        #plot_compare(test, pipe, plot_name)
-        
-        
+        ## Evaluation on quality of the watermark
         # eval
         no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
 
@@ -266,7 +242,7 @@ def main(args):
         asdfasdf"""
         
 
-    # LKH
+    # LKH : Show results of optimization
     accuracy_list = []
     for i in accuracy:
         accuracy_list.append(i.cpu().detach().numpy())
