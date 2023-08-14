@@ -206,6 +206,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         z = self.get_image_latents(x).clone().float() # initial z
         z.requires_grad_(True)
 
+        # Loss를 계산할 때 무언가를 가져와야 한다
         loss_function = torch.nn.MSELoss(reduction='sum')
         losses = []
 
