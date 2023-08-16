@@ -220,14 +220,35 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         ## Adjusting Adam
         optimizer = torch.optim.Adam([z], lr=1e-3)
 
-        for i in range(5000):
+        t =self.scheduler.timesteps[-1]
+        scheduler = copy.deepcopy(self.scheduler)
+        unet = copy.deepcopy(self.unet).float()
+
+        lam = 0.1
+
+        for i in range(1000):
             x_pred = self.decode_image_for_gradient_float(z)
-            loss = loss_function(x_pred, input)
-            #losses.append(loss.detach().item())
-            if i%100==0:
-                print(f"t: {0}, Iteration {i}, Loss: {loss.item():.3f}")
-            if loss.item() < 0.001:
-                break
+            
+            """
+            z_output = copy.deepcopy(z)
+            z_output = scheduler.convert_model_output(z_output, t, z)
+            z_output = scheduler.step(z_output, t, z).prev_sample
+            """
+            z_clone = z.clone().detach()
+            with torch.no_grad():
+                noise = unet(z_clone, t, encoder_hidden_states=encoder_hidden_states.float()).sample
+                sample = scheduler.step(noise, t, z_clone).prev_sample
+            sample = sample.detach()
+
+            ## Want to
+            loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
+            loss1 = loss_function(x_pred, input).detach()
+            loss2 = loss_function(z, sample).detach()
+            #loss = loss_function(z, sample)
+
+            losses.append(loss.detach().item())
+            if i%10==0:
+                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
 
             optimizer.zero_grad()
             loss.backward()

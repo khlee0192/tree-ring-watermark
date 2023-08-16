@@ -37,13 +37,13 @@ def plot_compare(latent, modified_latent, pipe, title):
 
     plt.figure()
     plt.subplot(1,3,1)
-    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
+    plt.imshow(to_pil_image(img[0]))
     plt.title("z")
     plt.subplot(1,3,2)
-    plt.imshow(rgb_to_grayscale(to_pil_image(img_wo_correction[0])))
+    plt.imshow(to_pil_image(img_wo_correction[0]))
     plt.title("E(D(z))")
     plt.subplot(1,3,3)
-    plt.imshow(rgb_to_grayscale(to_pil_image(img_w_correction[0])))
+    plt.imshow(to_pil_image(img_w_correction[0]))
     plt.title("E*(D(z))")
     plt.savefig(title)
     #plt.show()
@@ -116,8 +116,8 @@ def main(args):
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         ind = ind + 1
-        # if ind==10: Test optimization on 10 images
-        #     break
+        if ind==10: #Test optimization on 10 images
+            break
 
         seed = i + args.gen_seed
         
@@ -156,8 +156,8 @@ def main(args):
 
         plot_name = './data/'+str(i)+'.png'
         errorplot_name = './errordata/'+str(i)+'.png'
-        plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
     
         # 170~249 is annotated to make experiment fast
         """
