@@ -69,8 +69,8 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
     plt.subplot(1,3,3)
     plt.imshow(rgb_to_grayscale(to_pil_image(error2)))
     plt.title("E*(D(z))")
-    plt.savefig(title)
-    #plt.show()
+    #plt.savefig(title)
+    plt.show()
 
 def main(args):
     table = None
@@ -112,6 +112,7 @@ def main(args):
     w_metrics = []
 
     accuracy = []
+    accuracy_dist = []
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
@@ -138,8 +139,7 @@ def main(args):
             )
         orig_image_no_w = outputs_no_w.images[0] # image generated at the first, without WM
         
-        
-        # Starting latent analysis
+        # Starting latent analysis with generated image
         orig_image = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
         test = pipe.get_image_latents(orig_image, sample=False)
 
@@ -156,8 +156,31 @@ def main(args):
 
         plot_name = './data/'+str(i)+'.png'
         errorplot_name = './errordata/'+str(i)+'.png'
-        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_compare(test, image_latents_w_modified, pipe, plot_name)
         #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+
+
+
+        # Test on image distortion
+        orig_image_auged = image_distortion_single(orig_image_no_w, seed, args)
+
+        img_no_w = transform_img(orig_image_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        test = pipe.get_image_latents(img_no_w, sample=False)
+
+        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
+        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
+        corrected_error = compare_latents(test, image_latents_w_modified)
+        single_improvement = (original_error-corrected_error)/original_error*100
+
+        print(f"compare error_dist : {original_error}")
+        print(f"error after optimization_dist : {corrected_error}")
+        print(f"Improvement_dist : {single_improvement}%")
+
+        accuracy_dist.append(single_improvement)
+
+        plot_name = './distortiondata/'+str(i)+'.png'
+        errorplot_name = './distortionerrordata/'+str(i)+'.png'
+        plot_compare(test, image_latents_w_modified, pipe, plot_name)
     
         # 170~249 is annotated to make experiment fast
         """
@@ -252,6 +275,16 @@ def main(args):
     print(f"accuracy min : {accuracy_list.min()}")
     print(f"accuracy max : {accuracy_list.max()}")
     print(f"accuracy var : {accuracy_list.var()}")
+
+    accuracy_list_dist = []
+    for i in accuracy:
+        accuracy_list_dist.append(i.cpu().detach().numpy())
+    accuracy_list_dist = np.array(accuracy_list_dist, dtype=np.float64)
+    
+    print(f"accuracy mean : {accuracy_list_dist.mean()}")
+    print(f"accuracy min : {accuracy_list_dist.min()}")
+    print(f"accuracy max : {accuracy_list_dist.max()}")
+    print(f"accuracy var : {accuracy_list_dist.var()}")
 
     # roc
     preds = no_w_metrics +  w_metrics

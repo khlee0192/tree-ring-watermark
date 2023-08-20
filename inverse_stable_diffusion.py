@@ -226,7 +226,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         lam = 0.1
 
-        for i in range(1000):
+        for i in range(5000):
             x_pred = self.decode_image_for_gradient_float(z)
             
             """
@@ -234,20 +234,19 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             z_output = scheduler.convert_model_output(z_output, t, z)
             z_output = scheduler.step(z_output, t, z).prev_sample
             """
-            z_clone = z.clone().detach()
+
             with torch.no_grad():
-                noise = unet(z_clone, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-                sample = scheduler.step(noise, t, z_clone).prev_sample
+                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
+                sample = scheduler.step(noise, t, z).prev_sample
             sample = sample.detach()
 
             ## Want to
             loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
             loss1 = loss_function(x_pred, input).detach()
             loss2 = loss_function(z, sample).detach()
-            #loss = loss_function(z, sample)
 
-            losses.append(loss.detach().item())
-            if i%10==0:
+            #losses.append(loss.detach().item())
+            if i%1000==0:
                 print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
 
             optimizer.zero_grad()
