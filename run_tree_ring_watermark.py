@@ -57,18 +57,22 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
 
     img = img[0]
     error1 = (img_wo_correction[0]-img)
+    error1norm = torch.sqrt(torch.abs(error1[0])**2 + torch.abs(error1[1])**2 + torch.abs(error1[2])**2)
+    error1norm = torch.flip(error1norm, [0])
     error2 = (img_w_correction[0]-img)
-
+    error2norm = torch.sqrt(torch.abs(error2[0])**2 + torch.abs(error2[1])**2 + torch.abs(error2[2])**2)
+    error2norm = torch.flip(error2norm, [0])
     plt.figure()
     plt.subplot(1,3,1)
     plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
     plt.title("z")
     plt.subplot(1,3,2)
-    plt.imshow(rgb_to_grayscale(to_pil_image(error1)))
+    plt.pcolor(error1norm.cpu())
     plt.title("E(D(z))")
     plt.subplot(1,3,3)
-    plt.imshow(rgb_to_grayscale(to_pil_image(error2)))
+    plt.pcolor(error2norm.cpu())
     plt.title("E*(D(z))")
+    plt.colorbar()
     #plt.savefig(title)
     plt.show()
 
@@ -116,7 +120,6 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        ind = ind + 1
         if ind==10: #Test optimization on 10 images
             break
 
@@ -138,7 +141,7 @@ def main(args):
             latents=init_latents_no_w,
             )
         orig_image_no_w = outputs_no_w.images[0] # image generated at the first, without WM
-        
+
         # Starting latent analysis with generated image
         orig_image = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
         test = pipe.get_image_latents(orig_image, sample=False)
@@ -156,10 +159,8 @@ def main(args):
 
         plot_name = './data/'+str(i)+'.png'
         errorplot_name = './errordata/'+str(i)+'.png'
-        plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
-
-
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
 
         # Test on image distortion
         orig_image_auged = image_distortion_single(orig_image_no_w, seed, args)
@@ -180,8 +181,9 @@ def main(args):
 
         plot_name = './distortiondata/'+str(i)+'.png'
         errorplot_name = './distortionerrordata/'+str(i)+'.png'
-        plot_compare(test, image_latents_w_modified, pipe, plot_name)
-    
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+
         # 170~249 is annotated to make experiment fast
         """
         # generation with watermark
@@ -263,7 +265,7 @@ def main(args):
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
         asdfasdf"""
-        
+        ind = ind + 1
 
     # LKH : Show results of optimization
     accuracy_list = []
@@ -277,7 +279,7 @@ def main(args):
     print(f"accuracy var : {accuracy_list.var()}")
 
     accuracy_list_dist = []
-    for i in accuracy:
+    for i in accuracy_dist:
         accuracy_list_dist.append(i.cpu().detach().numpy())
     accuracy_list_dist = np.array(accuracy_list_dist, dtype=np.float64)
     

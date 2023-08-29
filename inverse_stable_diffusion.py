@@ -201,7 +201,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         Goal : minimize norm(e(x)-z), working on adding regularizer
         """
-        input = x.clone().requires_grad_(True).float()
+        input = x.clone().float()
 
         z = self.get_image_latents(x).clone().float() # initial z
         z.requires_grad_(True)
@@ -218,29 +218,50 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         #optimizer = torch.optim.Adam([z], lr=1e-3)
 
         ## Adjusting Adam
-        optimizer = torch.optim.Adam([z], lr=1e-3)
+        optimizer = torch.optim.Adam([z], lr=1e-2)
 
         t =self.scheduler.timesteps[-1]
         scheduler = copy.deepcopy(self.scheduler)
         unet = copy.deepcopy(self.unet).float()
 
-        lam = 0.1
+        lam = 1
+
+        """
+        z_output = copy.deepcopy(z)
+        z_output = scheduler.convert_model_output(z_output, t, z)
+        z_output = scheduler.step(z_output, t, z).prev_sample
+        """
 
         for i in range(5000):
             x_pred = self.decode_image_for_gradient_float(z)
-            
-            """
-            z_output = copy.deepcopy(z)
-            z_output = scheduler.convert_model_output(z_output, t, z)
-            z_output = scheduler.step(z_output, t, z).prev_sample
-            """
 
+            #if, without regularizer
+            loss = loss_function(x_pred, input)
+
+            if i%1000==0:
+                print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
+            
+
+            """
+            #if, with unet regularizer
+            with torch.no_grad():
+                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
+            #noise = noise.detach()
+
+            loss = loss_function(x_pred, input) + lam * torch.sum(torch.abs(noise))
+            loss1 = loss_function(x_pred, input).detach()
+            loss2 = torch.sum(torch.abs(noise)).detach()
+
+            if i%1000==0:
+                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+            """
+                
+            """ if, with ddim regularizer
             with torch.no_grad():
                 noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
                 sample = scheduler.step(noise, t, z).prev_sample
             sample = sample.detach()
 
-            ## Want to
             loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
             loss1 = loss_function(x_pred, input).detach()
             loss2 = loss_function(z, sample).detach()
@@ -248,12 +269,22 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             #losses.append(loss.detach().item())
             if i%1000==0:
                 print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+            """
+            
+            """#if, with z regularizer
+            
+            loss = loss_function(x_pred, input) + torch.norm(z)
+            loss1 = loss_function(x_pred, input).detach()
+            loss2 = torch.norm(z)
 
+            if i%1000==0:
+                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+            """
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             #scheduler.step()
-
+            
         #plt.plot(losses)
         return z.half()
 

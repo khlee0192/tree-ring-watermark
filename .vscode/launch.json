@@ -10,8 +10,9 @@
             "request": "launch",
             "program": "${file}",
             "args": [
-                "--run_name", "rotation",
-                "--r_degree", "75",
+                "--run_name", "cropping",
+                "--crop_ratio", "0.75",
+                "--crop_scale", "0.75",
                 "--w_channel", "3",
                 "--start", "0",
                 "--end", "1000",
