@@ -35,16 +35,19 @@ def plot_compare(latent, modified_latent, pipe, title):
     img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
     img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
 
-    plt.figure()
+    plt.figure(figsize=(12, 36))
     plt.subplot(1,3,1)
     plt.imshow(to_pil_image(img[0]))
     plt.title("z")
+    plt.tick_params(axis='both', which='both', labelsize=8)
     plt.subplot(1,3,2)
     plt.imshow(to_pil_image(img_wo_correction[0]))
     plt.title("E(D(z))")
+    plt.tick_params(axis='both', which='both', labelsize=8)
     plt.subplot(1,3,3)
     plt.imshow(to_pil_image(img_w_correction[0]))
     plt.title("E*(D(z))")
+    plt.tick_params(axis='both', which='both', labelsize=8)
     plt.savefig(title)
     #plt.show()
 
@@ -62,19 +65,26 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
     error2 = (img_w_correction[0]-img)
     error2norm = torch.sqrt(torch.abs(error2[0])**2 + torch.abs(error2[1])**2 + torch.abs(error2[2])**2)
     error2norm = torch.flip(error2norm, [0])
-    plt.figure()
+    plt.figure(figsize=(12, 36))
     plt.subplot(1,3,1)
     plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
     plt.title("z")
+    plt.tick_params(axis='both', which='both', labelsize=8)
     plt.subplot(1,3,2)
     plt.pcolor(error1norm.cpu())
     plt.title("E(D(z))")
+    plt.tick_params(axis='both', which='both', labelsize=8)
+    plt.gca().set_aspect('equal')
     plt.subplot(1,3,3)
     plt.pcolor(error2norm.cpu())
     plt.title("E*(D(z))")
+    plt.tick_params(axis='both', which='both', labelsize=8)
+    plt.gca().set_aspect('equal')
+    
+    plt.tight_layout()
     plt.colorbar()
-    #plt.savefig(title)
-    plt.show()
+    plt.savefig(title)
+    #plt.show()
 
 def main(args):
     table = None
@@ -183,9 +193,9 @@ def main(args):
         errorplot_name = './distortionerrordata/'+str(i)+'.png'
         #plot_compare(test, image_latents_w_modified, pipe, plot_name)
         plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
-
-        # 170~249 is annotated to make experiment fast
         """
+        ### checkpoint
+
         # generation with watermark
         if init_latents_no_w is None:
             set_random_seed(seed)
@@ -264,7 +274,9 @@ def main(args):
 
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
-        asdfasdf"""
+        
+        ### checkpoint
+        """
         ind = ind + 1
 
     # LKH : Show results of optimization
@@ -287,7 +299,7 @@ def main(args):
     print(f"accuracy min : {accuracy_list_dist.min()}")
     print(f"accuracy max : {accuracy_list_dist.max()}")
     print(f"accuracy var : {accuracy_list_dist.var()}")
-
+    
     # roc
     preds = no_w_metrics +  w_metrics
     t_labels = [1] * len(no_w_metrics) + [0] * len(w_metrics)

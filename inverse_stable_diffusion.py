@@ -232,13 +232,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         z_output = scheduler.step(z_output, t, z).prev_sample
         """
 
-        for i in range(5000):
+        for i in range(1000):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
 
-            if i%1000==0:
+            if i%200==0:
                 print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
             
 
