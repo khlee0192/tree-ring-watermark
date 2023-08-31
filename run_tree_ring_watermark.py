@@ -5,6 +5,7 @@ from tqdm import tqdm
 from statistics import mean, stdev
 from sklearn import metrics
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
@@ -35,18 +36,18 @@ def plot_compare(latent, modified_latent, pipe, title):
     img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
     img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
 
-    plt.figure(figsize=(12, 36))
+    plt.figure(figsize=(18, 6))
     plt.subplot(1,3,1)
     plt.imshow(to_pil_image(img[0]))
-    plt.title("z")
+    plt.title("Original")
     plt.tick_params(axis='both', which='both', labelsize=8)
     plt.subplot(1,3,2)
     plt.imshow(to_pil_image(img_wo_correction[0]))
-    plt.title("E(D(z))")
+    plt.title("Encoder")
     plt.tick_params(axis='both', which='both', labelsize=8)
     plt.subplot(1,3,3)
     plt.imshow(to_pil_image(img_w_correction[0]))
-    plt.title("E*(D(z))")
+    plt.title("Optimization")
     plt.tick_params(axis='both', which='both', labelsize=8)
     plt.savefig(title)
     #plt.show()
@@ -65,24 +66,22 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
     error2 = (img_w_correction[0]-img)
     error2norm = torch.sqrt(torch.abs(error2[0])**2 + torch.abs(error2[1])**2 + torch.abs(error2[2])**2)
     error2norm = torch.flip(error2norm, [0])
-    plt.figure(figsize=(12, 36))
-    plt.subplot(1,3,1)
-    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
-    plt.title("z")
-    plt.tick_params(axis='both', which='both', labelsize=8)
-    plt.subplot(1,3,2)
-    plt.pcolor(error1norm.cpu())
-    plt.title("E(D(z))")
-    plt.tick_params(axis='both', which='both', labelsize=8)
-    plt.gca().set_aspect('equal')
-    plt.subplot(1,3,3)
-    plt.pcolor(error2norm.cpu())
-    plt.title("E*(D(z))")
-    plt.tick_params(axis='both', which='both', labelsize=8)
-    plt.gca().set_aspect('equal')
+
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(19.5, 6))
+
+    axes[0].imshow(rgb_to_grayscale(to_pil_image(img[0])))
+    axes[0].set_title("Original") 
+
+    im2 = axes[1].pcolor(error1norm.cpu())
+    axes[1].set_aspect('equal')
+    axes[1].set_title("Encoder")
+
+    im3 = axes[2].pcolor(error2norm.cpu())
+    axes[2].set_aspect('equal')
+    axes[2].set_title("Optimization(Ours)")
+
+    fig.colorbar(im3, ax=axes.ravel().tolist())
     
-    plt.tight_layout()
-    plt.colorbar()
     plt.savefig(title)
     #plt.show()
 
@@ -128,9 +127,23 @@ def main(args):
     accuracy = []
     accuracy_dist = []
 
+    datadir = "./data/"
+    errordatadir = "./errordata/"
+    distortiondatadir = "./distortiondata/"
+    distortionerrordatadir = "./distortionerrordata/"
+
+    if not os.path.exists(datadir):
+        os.makedirs(datadir)
+    if not os.path.exists(errordatadir):
+        os.makedirs(errordatadir)
+    if not os.path.exists(distortiondatadir):
+        os.makedirs(distortiondatadir)
+    if not os.path.exists(distortionerrordatadir):
+        os.makedirs(distortionerrordatadir)
+
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind==10: #Test optimization on 10 images
+        if ind== 5: #Test optimization on 10 images
             break
 
         seed = i + args.gen_seed
@@ -167,9 +180,9 @@ def main(args):
         
         accuracy.append(single_improvement)
 
-        plot_name = './data/'+str(i)+'.png'
-        errorplot_name = './errordata/'+str(i)+'.png'
-        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_name = datadir+str(i)+'.png'
+        errorplot_name = errordatadir+str(i)+'.png'
+        plot_compare(test, image_latents_w_modified, pipe, plot_name)
         plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
 
         # Test on image distortion
@@ -189,9 +202,9 @@ def main(args):
 
         accuracy_dist.append(single_improvement)
 
-        plot_name = './distortiondata/'+str(i)+'.png'
-        errorplot_name = './distortionerrordata/'+str(i)+'.png'
-        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        plot_name = distortiondatadir+str(i)+'.png'
+        errorplot_name = distortionerrordatadir+str(i)+'.png'
+        plot_compare(test, image_latents_w_modified, pipe, plot_name)
         plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
         """
         ### checkpoint
