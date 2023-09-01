@@ -182,8 +182,8 @@ def main(args):
 
         plot_name = datadir+str(i)+'.png'
         errorplot_name = errordatadir+str(i)+'.png'
-        plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
 
         # Test on image distortion
         orig_image_auged = image_distortion_single(orig_image_no_w, seed, args)
@@ -204,11 +204,10 @@ def main(args):
 
         plot_name = distortiondatadir+str(i)+'.png'
         errorplot_name = distortionerrordatadir+str(i)+'.png'
-        plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
-        """
-        ### checkpoint
-
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+    
+    
         # generation with watermark
         if init_latents_no_w is None:
             set_random_seed(seed)
@@ -287,9 +286,7 @@ def main(args):
 
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
-        
-        ### checkpoint
-        """
+    
         ind = ind + 1
 
     # LKH : Show results of optimization

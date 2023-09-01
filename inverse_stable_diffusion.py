@@ -208,29 +208,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         # Loss를 계산할 때 무언가를 가져와야 한다
         loss_function = torch.nn.MSELoss(reduction='sum')
-        losses = []
 
-        ## SGD : improvement with 63.75% accuracy
-        #optimizer = torch.optim.SGD([z], lr=1e-3, momentum=0.9)
-        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 1000, 3000], gamma=0.1)
-        
-        ## Current best
-        #optimizer = torch.optim.Adam([z], lr=1e-3)
-
-        ## Adjusting Adam
+        # Optimizer
         optimizer = torch.optim.Adam([z], lr=1e-2)
-
-        t =self.scheduler.timesteps[-1]
-        scheduler = copy.deepcopy(self.scheduler)
-        unet = copy.deepcopy(self.unet).float()
-
-        lam = 1
-
-        """
-        z_output = copy.deepcopy(z)
-        z_output = scheduler.convert_model_output(z_output, t, z)
-        z_output = scheduler.step(z_output, t, z).prev_sample
-        """
 
         for i in range(1000):
             x_pred = self.decode_image_for_gradient_float(z)
@@ -241,51 +221,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             if i%200==0:
                 print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
             
-
-            """
-            #if, with unet regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-            #noise = noise.detach()
-
-            loss = loss_function(x_pred, input) + lam * torch.sum(torch.abs(noise))
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.sum(torch.abs(noise)).detach()
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-                
-            """ if, with ddim regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-                sample = scheduler.step(noise, t, z).prev_sample
-            sample = sample.detach()
-
-            loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = loss_function(z, sample).detach()
-
-            #losses.append(loss.detach().item())
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-            
-            """#if, with z regularizer
-            
-            loss = loss_function(x_pred, input) + torch.norm(z)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.norm(z)
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            #scheduler.step()
             
-        #plt.plot(losses)
         return z.half()
 
     @torch.inference_mode()
