@@ -189,7 +189,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         return latents
 
-    def edcorrector(self, x, encoder_hidden_states):
+    def edcorrector(self, x):
         """
         edcorrector calculates latents z of the image x by solving optimization problem ||E(x)-z||,
         not by directly encoding with VAE encoder. "Decoder inversion"
