@@ -242,6 +242,12 @@ def main(args):
             num_inference_steps=args.test_num_inference_steps,
         )
         
+        # Exp1. Noise2Noise
+        
+
+        # Exp2. Img2Img
+
+
         """
         ## Evaluation on quality of the watermark
         # eval
