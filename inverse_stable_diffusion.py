@@ -191,7 +191,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     def edcorrector(self, x):
         """
-        edcorrector calculates latents z of the image x by solving optimization problem ||E(x)-z||,
+        edcorrector calculates latents z of the image x by solving optimization problem ||D(z)-x||,
         not by directly encoding with VAE encoder. "Decoder inversion"
 
         INPUT
@@ -199,32 +199,32 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         OUTPUT
         z : modified latent data (1, 4, 64, 64)
 
-        Goal : minimize norm(e(x)-z), working on adding regularizer
+        Goal : minimize norm(e(x)-z)
         """
         input = x.clone().float()
 
         z = self.get_image_latents(x).clone().float() # initial z
         z.requires_grad_(True)
 
-        # Loss를 계산할 때 무언가를 가져와야 한다
+        # Loss function
         loss_function = torch.nn.MSELoss(reduction='sum')
 
         # Optimizer
         optimizer = torch.optim.Adam([z], lr=1e-2)
 
+        print("Starting Decoder inversion...")
+        # Optimization
         for i in range(1000):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
-
-            if i%200==0:
-                print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            
+        print("Decoder Inversion ended")
+
         return z.half()
 
     @torch.inference_mode()
