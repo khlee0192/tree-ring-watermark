@@ -211,7 +211,7 @@ def main(args):
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.num_inference_steps,
             height=args.image_length,
-            width=args.image_length
+            width=args.image_length,
             latents=init_latents_w,
          ) # Not a single tensor, a pipeline structure containing "images", "nsfw_content_detected", "init_latents"
         orig_image_w = outputs_w.images[0]
