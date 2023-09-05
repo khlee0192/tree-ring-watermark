@@ -110,7 +110,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         old_text_embeddings=None,
         new_text_embeddings=None,
         latents: Optional[torch.FloatTensor] = None,
-        num_inference_steps: int = 50,
+        num_inference_steps: int = 20,
         guidance_scale: float = 7.5,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
@@ -212,7 +212,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         # Optimizer
         optimizer = torch.optim.Adam([z], lr=1e-2)
 
-        print("Starting Decoder inversion...")
+        print("Starting Decoder inversion... ", end=" ")
         # Optimization
         for i in range(1000):
             x_pred = self.decode_image_for_gradient_float(z)

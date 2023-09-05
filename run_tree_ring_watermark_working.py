@@ -28,7 +28,7 @@ def compare_latents(z, z_comp):
     returns norm(z-z_comp)/norm(z_comp)
     """
     diff = z - z_comp
-    return torch.norm(diff)/torch.norm(z_comp)
+    return torch.mean(diff**2)/torch.mean(z**2)
 
 def compare_image(x, x_comp):
     """
@@ -38,8 +38,10 @@ def compare_image(x, x_comp):
 
     returns norm(x-x_comp)/norm(x_comp)
     """
+    x = np.array(x)
+    x_comp = np.array(x_comp)
     diff = x - x_comp
-    return np.abs(diff)/np.abs(x_comp)
+    return np.mean(diff**2)/np.mean(x_comp**2)
 
 def plot_compare(latent, modified_latent, pipe, title):
     # Latent, pipe -> draw image, maybe good to make clean code
@@ -160,82 +162,12 @@ def main(args):
             )
         orig_image_no_w = outputs_no_w.images[0] # image generated at the first, without WM
 
-        """First Annotated, TODO : erase
-        # Starting latent analysis with generated image
-        orig_image = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        test = pipe.get_image_latents(orig_image, sample=False)
-
-        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test)) # input as the image
-        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
-        corrected_error = compare_latents(test, image_latents_w_modified)
-        single_improvement = (original_error-corrected_error)/original_error*100
-
-        print(f"compare error : {original_error}")
-        print(f"error after optimization : {corrected_error}")
-        print(f"Improvement : {single_improvement}%")
-        
-        accuracy.append(single_improvement)
-
-        plot_name = datadir+str(i)+'.png'
-        errorplot_name = errordatadir+str(i)+'.png'
-        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
-
-        # Test on image distortion
-        orig_image_auged = image_distortion_single(orig_image_no_w, seed, args)
-
-        img_no_w = transform_img(orig_image_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        test = pipe.get_image_latents(img_no_w, sample=False)
-
-        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test)) # input as the image
-        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
-        corrected_error = compare_latents(test, image_latents_w_modified)
-        single_improvement = (original_error-corrected_error)/original_error*100
-
-        print(f"compare error_dist : {original_error}")
-        print(f"error after optimization_dist : {corrected_error}")
-        print(f"Improvement_dist : {single_improvement}%")
-
-        accuracy_dist.append(single_improvement)
-
-        plot_name = distortiondatadir+str(i)+'.png'
-        errorplot_name = distortionerrordatadir+str(i)+'.png'
-        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
-        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
-        """
-    
-        # generation with watermark
-        if init_latents_no_w is None:
-            set_random_seed(seed)
-            init_latents_w = pipe.get_random_latents()
-        else:
-            init_latents_w = copy.deepcopy(init_latents_no_w)
-
-        # get watermarking mask
-        watermarking_mask = get_watermarking_mask(init_latents_w, args, device) # Get initial 
-
-        # inject watermark, injection occurs on frequency domain
-        init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args) # Saves latent with WM
-
-        outputs_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=init_latents_w,
-         ) # Not a single tensor, a pipeline structure containing "images", "nsfw_content_detected", "init_latents"
-        orig_image_w = outputs_w.images[0]
-
-        ### test watermark
-        # distortion
-        orig_image_no_w_auged, orig_image_w_auged = image_distortion(orig_image_no_w, orig_image_w, seed, args)
-
+        ## Exp1. Not exact, Origianl
         # reverse img without watermarking
-        img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_no_w = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
         image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
+        # noise (forward_diffusion gives the noise)
         reversed_latents_no_w = pipe.forward_diffusion(
             latents=image_latents_no_w,
             text_embeddings=text_embeddings,
@@ -255,23 +187,37 @@ def main(args):
             )
         re_reversed_image_no_w =re_outputs_no_w.images[0]
 
-        """
-        # reverse img with watermarking
-        img_w = transform_img(orig_image_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        image_latents_w = pipe.get_image_latents(img_w, sample=False)
+        # Exp1-1. Noise2Noise
+        print(f"Exp 1-1, Error : {compare_latents(reversed_latents_no_w, init_latents_no_w)}")
+        # Exp1-2. Img2Img
+        print(f"Exp 1-2, Error : {compare_image(re_reversed_image_no_w, orig_image_no_w)}")
 
-        reversed_latents_w = pipe.forward_diffusion(
-            latents=image_latents_w,
+        # Exp2. Exact Decoder Inversion Only
+        dec_exact_image_latents_no_w = pipe.edcorrector(img_no_w)
+        dec_exact_reversed_latents_no_w = pipe.forward_diffusion(
+            latents=dec_exact_image_latents_no_w,
             text_embeddings=text_embeddings,
             guidance_scale=1,
             num_inference_steps=args.test_num_inference_steps,
         )
-        """
-        
-        # Exp1-1. Noise2Noise - Not Exact DDIM Inversion, 
-        print(f"Exp 1-1, Error : {compare_latents(init_latents_no_w, reversed_latents_no_w)}")
-        # Exp1-2. Img2Img
-        print(f"Exp 1-2, Error : {compare_image(orig_image_no_w, re_reversed_image_no_w)}")
+
+        dec_exact_re_outputs_no_w = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=dec_exact_reversed_latents_no_w
+            )
+        dec_exact_re_reversed_image_no_w = dec_exact_re_outputs_no_w.images[0]
+
+
+        # Exp2-1. Noise2Noise
+        print(f"Exp 2-1, Error : {compare_latents(dec_exact_reversed_latents_no_w, init_latents_no_w)}")
+        # Exp2-2. Img2Img
+        print(f"Exp 2-2, Error : {compare_image(dec_exact_re_reversed_image_no_w, orig_image_no_w)}")
+
 
         """
         ## Evaluation on quality of the watermark
@@ -305,28 +251,6 @@ def main(args):
         """
         ind = ind + 1
 
-    """
-    # LKH : Show results of optimization
-    accuracy_list = []
-    for i in accuracy:
-        accuracy_list.append(i.cpu().detach().numpy())
-    accuracy_list = np.array(accuracy_list, dtype=np.float64)
-    
-    print(f"accuracy mean : {accuracy_list.mean()}")
-    print(f"accuracy min : {accuracy_list.min()}")
-    print(f"accuracy max : {accuracy_list.max()}")
-    print(f"accuracy var : {accuracy_list.var()}")
-
-    accuracy_list_dist = []
-    for i in accuracy_dist:
-        accuracy_list_dist.append(i.cpu().detach().numpy())
-    accuracy_list_dist = np.array(accuracy_list_dist, dtype=np.float64)
-    
-    print(f"accuracy mean : {accuracy_list_dist.mean()}")
-    print(f"accuracy min : {accuracy_list_dist.min()}")
-    print(f"accuracy max : {accuracy_list_dist.max()}")
-    print(f"accuracy var : {accuracy_list_dist.var()}")
-    """
 
     """
     # roc
