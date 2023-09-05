@@ -50,7 +50,7 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
         eta: float = 0.0,
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         latents: Optional[torch.FloatTensor] = None,
-        output_type: Optional[str] = "pil",
+        output_type: Optional[str] = "numpy",
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,

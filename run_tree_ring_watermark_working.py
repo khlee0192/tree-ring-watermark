@@ -6,6 +6,7 @@ from statistics import mean, stdev
 from sklearn import metrics
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import numpy as np
 
 import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
@@ -29,12 +30,23 @@ def compare_latents(z, z_comp):
     diff = z - z_comp
     return torch.norm(diff)/torch.norm(z_comp)
 
+def compare_image(x, x_comp):
+    """
+    parameters
+    x : image after calculation, ndarray
+    x_comp : image for comparison, ndarray
+
+    returns norm(x-x_comp)/norm(x_comp)
+    """
+    diff = x - x_comp
+    return np.abs(diff)/np.abs(x_comp)
+
 def plot_compare(latent, modified_latent, pipe, title):
     # Latent, pipe -> draw image, maybe good to make clean code
         # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
     img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
     img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
-    img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
+    img_w_correction = (pipe.decode_image(modified_latent)/2+0.5).clamp(0, 1)
 
     plt.figure(figsize=(18, 6))
     plt.subplot(1,3,1)
@@ -136,7 +148,7 @@ def main(args):
         ### generation
         # generation without watermarking
         set_random_seed(seed)
-        init_latents_no_w = pipe.get_random_latents() # setting random x without WM
+        init_latents_no_w = pipe.get_random_latents() # setting random x without WM, gaussian noise
         outputs_no_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
@@ -231,6 +243,19 @@ def main(args):
             num_inference_steps=args.test_num_inference_steps,
         )
 
+        # re-reverse img without watermarking -> image
+        re_outputs_no_w = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=reversed_latents_no_w
+            )
+        re_reversed_image_no_w =re_outputs_no_w.images[0]
+
+        """
         # reverse img with watermarking
         img_w = transform_img(orig_image_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
         image_latents_w = pipe.get_image_latents(img_w, sample=False)
@@ -241,12 +266,12 @@ def main(args):
             guidance_scale=1,
             num_inference_steps=args.test_num_inference_steps,
         )
+        """
         
-        # Exp1. Noise2Noise
-        
-
-        # Exp2. Img2Img
-
+        # Exp1-1. Noise2Noise - Not Exact DDIM Inversion, 
+        print(f"Exp 1-1, Error : {compare_latents(init_latents_no_w, reversed_latents_no_w)}")
+        # Exp1-2. Img2Img
+        print(f"Exp 1-2, Error : {compare_image(orig_image_no_w, re_reversed_image_no_w)}")
 
         """
         ## Evaluation on quality of the watermark
