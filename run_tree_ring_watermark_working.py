@@ -212,7 +212,6 @@ def main(args):
             )
         dec_exact_re_reversed_image_no_w = dec_exact_re_outputs_no_w.images[0]
 
-
         # Exp2-1. Noise2Noise
         print(f"Exp 2-1, Error : {compare_latents(dec_exact_reversed_latents_no_w, init_latents_no_w)}")
         # Exp2-2. Img2Img
