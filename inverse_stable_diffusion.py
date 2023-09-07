@@ -34,20 +34,63 @@ def forward_ddim(x_t, alpha_t, alpha_tp1, eps_xt):
     """ from image to noise, it's the same as backward_ddim"""
     return backward_ddim(x_t, alpha_t, alpha_tp1, eps_xt)
  
-def exact_forward_ddim(x_t, alpha_t, alpha_tp1, sig_t, sig_tp1, index, eps_xt, n_iter=100):
+def exact_forward_ddim(
+        x, 
+        alpha_t, 
+        alpha_tp1, 
+        sig_t, 
+        sig_tp1, 
+        index, 
+        unet, 
+        scheduler, 
+        time, 
+        prev_time, 
+        n_iter, 
+        total_inference_step, 
+        text_embeddings):
     # n_iter : number of differential correction
     lamb_t = torch.log(alpha_t/sig_t)
     lamb_tp1 = torch.log(alpha_tp1/sig_tp1)
+    h = lamb_tp1 - lamb_t # change?
+
+    phi_1 = torch.expm1(h)
+    noise_pred = unet(x, time, encoder_hidden_states=text_embeddings).sample
+    model_s = scheduler.step(noise_pred, time, x).prev_sample
+    x_t = x
+
+    # naive DDIM inversion
+    x = (
+        sig_tp1 / sig_t * x
+        + sig_tp1 / sig_t * alpha_t * phi_1 * model_s
+    )
     
-    # Until Final
+    # Correction
+    torch.set_grad_enabled(True)
+    x = differential_correction(x, time, prev_time, x_t, scheduler, unet, n_iter, text_embeddings)
+    torch.set_grad_enabled(False)
+    return x
 
+def differential_correction(x, time, prev_time, x_t, scheduler, unet, n_iter, text_embeddings):
+    scheduler = copy.deepcopy(scheduler)
+    unet = copy.deepcopy(unet)
+    input = x.clone().float().requires_grad_(True)
+    x_t = x_t.clone()
+    th = 1e-6
 
-    # Final Step
+    loss_function = torch.nn.MSELoss(reduction='sum')
+    optimizer = torch.optim.SGD([input], lr=0.05)
+    for i in range(n_iter):
+        model_output = unet(input, time, text_embeddings)
+        model_output = scheduler.step(model_output, time, x)
 
-    return None
-
-def differential_correction():
-    pass
+        loss = loss_function(model_output, x_t)
+        print(f"t: {time}, Iteration {i}, Loss: {loss.item():.6f}")
+        if loss.item() < th:
+            break             
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    return input
 
 class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
     def __init__(self,
@@ -289,14 +332,21 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 alpha_prod_t, alpha_prod_t_prev = alpha_prod_t_prev, alpha_prod_t
                 sig_t, sig_t_prev = sig_t_prev, sig_t
             latents = exact_forward_ddim(
-                x_t=latents,
+                x=latents,
                 alpha_t=alpha_prod_t,
-                alpha_tm1=alpha_prod_t_prev,
+                alpha_tp1=alpha_prod_t_prev,
                 sig_t = sig_t,
-                sig_tm1 = sig_t_prev,
+                sig_tp1 = sig_t_prev,
                 index = i,
-                eps_xt=noise_pred,
+                unet = self.unet,
+                scheduler = self.scheduler,
+                time = t,
+                prev_time = prev_timestep,
+                n_iter = 100,
+                total_inference_step = num_inference_steps,
+                text_embeddings = text_embeddings,
             )
+            # TODO : put n_iter at kwargs or something
 
         return latents
 
@@ -335,6 +385,11 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             loss.backward()
             optimizer.step()
         print("Decoder Inversion ended")
+        z.requires_grad_(False)
+
+        # For GPU memory
+        del x_pred
+        torch.cuda.empty_cache()
 
         return z.half()
 

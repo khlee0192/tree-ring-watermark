@@ -192,6 +192,7 @@ def main(args):
         # Exp1-2. Img2Img
         print(f"Exp 1-2, Error : {compare_image(re_reversed_image_no_w, orig_image_no_w)}")
 
+        """
         # Exp2. Exact Decoder Inversion Only
         dec_exact_image_latents_no_w = pipe.edcorrector(img_no_w)
         dec_exact_reversed_latents_no_w = pipe.forward_diffusion(
@@ -216,7 +217,7 @@ def main(args):
         print(f"Exp 2-1, Error : {compare_latents(dec_exact_reversed_latents_no_w, init_latents_no_w)}")
         # Exp2-2. Img2Img
         print(f"Exp 2-2, Error : {compare_image(dec_exact_re_reversed_image_no_w, orig_image_no_w)}")
-
+        """
 
         # Exp3. Exact DDIM Inversion Only
         ddim_exact_image_latents_no_w = image_latents_no_w
