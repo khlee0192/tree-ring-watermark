@@ -218,6 +218,57 @@ def main(args):
         print(f"Exp 2-2, Error : {compare_image(dec_exact_re_reversed_image_no_w, orig_image_no_w)}")
 
 
+        # Exp3. Exact DDIM Inversion Only
+        ddim_exact_image_latents_no_w = image_latents_no_w
+        ddim_exact_reversed_latents_no_w = pipe.exact_forward_diffusion(
+            latents=ddim_exact_image_latents_no_w,
+            text_embeddings=text_embeddings,
+            guidance_scale=1,
+            num_inference_steps=args.test_num_inference_steps,
+        )
+
+        ddim_exact_re_outputs_no_w = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=ddim_exact_reversed_latents_no_w
+            )
+        ddim_exact_re_reversed_image_no_w = ddim_exact_re_outputs_no_w.images[0]
+
+        # Exp3-1. Noise2Noise
+        print(f"Exp 3-1, Error : {compare_latents(ddim_exact_reversed_latents_no_w, init_latents_no_w)}")
+        # Exp3-2. Img2Img
+        print(f"Exp 3-2, Error : {compare_image(ddim_exact_re_reversed_image_no_w, orig_image_no_w)}")
+        
+        # Exp4. Both Exact DDIM and Decoder Inversion
+        dnd_exact_image_latents_no_w = pipe.edcorrector(img_no_w)
+        dnd_exact_reversed_latents_no_w = pipe.exact_forward_diffusion(
+            latents=dnd_exact_image_latents_no_w,
+            text_embeddings=text_embeddings,
+            guidance_scale=1,
+            num_inference_steps=args.test_num_inference_steps,
+        )
+
+        dnd_exact_re_outputs_no_w = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=dnd_exact_reversed_latents_no_w
+            )
+        dnd_exact_re_reversed_image_no_w = dnd_exact_re_outputs_no_w.images[0]
+
+        # Exp4-1. Noise2Noise
+        print(f"Exp 4-1, Error : {compare_latents(dnd_exact_reversed_latents_no_w, init_latents_no_w)}")
+        # Exp4-2. Img2Img
+        print(f"Exp 4-2, Error : {compare_image(dnd_exact_re_reversed_image_no_w, orig_image_no_w)}")
+
+
         """
         ## Evaluation on quality of the watermark
         # eval

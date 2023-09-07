@@ -18,6 +18,7 @@ from modified_stable_diffusion import ModifiedStableDiffusionPipeline
 
 ### credit to: https://github.com/cccntu/efficient-prompt-to-prompt
 
+# Backward_ddim 
 def backward_ddim(x_t, alpha_t, alpha_tm1, eps_xt):
     """ from noise to image"""
     return (
@@ -29,11 +30,24 @@ def backward_ddim(x_t, alpha_t, alpha_tm1, eps_xt):
         + x_t
     )
 
-
 def forward_ddim(x_t, alpha_t, alpha_tp1, eps_xt):
     """ from image to noise, it's the same as backward_ddim"""
     return backward_ddim(x_t, alpha_t, alpha_tp1, eps_xt)
+ 
+def exact_forward_ddim(x_t, alpha_t, alpha_tp1, sig_t, sig_tp1, index, eps_xt, n_iter=100):
+    # n_iter : number of differential correction
+    lamb_t = torch.log(alpha_t/sig_t)
+    lamb_tp1 = torch.log(alpha_tp1/sig_tp1)
+    
+    # Until Final
 
+
+    # Final Step
+
+    return None
+
+def differential_correction():
+    pass
 
 class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
     def __init__(self,
@@ -184,6 +198,103 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 x_t=latents,
                 alpha_t=alpha_prod_t,
                 alpha_tm1=alpha_prod_t_prev,
+                eps_xt=noise_pred,
+            )
+
+        return latents
+
+    @torch.inference_mode()
+    def exact_forward_diffusion(
+        self,
+        use_old_emb_i=25,
+        text_embeddings=None,
+        old_text_embeddings=None,
+        new_text_embeddings=None,
+        latents: Optional[torch.FloatTensor] = None,
+        num_inference_steps: int = 20,
+        guidance_scale: float = 7.5,
+        callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
+        callback_steps: Optional[int] = 1,
+        reverse_process: True = False,
+        **kwargs,
+    ):
+        """ Generate latent 'exactly" from image and prompt
+        """
+        # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
+        # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
+        # corresponds to doing no classifier free guidance.
+        do_classifier_free_guidance = guidance_scale > 1.0
+        # set timesteps
+        self.scheduler.set_timesteps(num_inference_steps)
+        # Some schedulers like PNDM have timesteps as arrays
+        # It's more optimized to move all timesteps to correct device beforehand
+        timesteps_tensor = self.scheduler.timesteps.to(self.device)
+        # scale the initial noise by the standard deviation required by the scheduler
+        latents = latents * self.scheduler.init_noise_sigma
+
+        if old_text_embeddings is not None and new_text_embeddings is not None:
+            prompt_to_prompt = True
+        else:
+            prompt_to_prompt = False
+
+
+        for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
+            if prompt_to_prompt:
+                if i < use_old_emb_i:
+                    text_embeddings = old_text_embeddings
+                else:
+                    text_embeddings = new_text_embeddings
+
+            # expand the latents if we are doing classifier free guidance
+            latent_model_input = (
+                torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            )
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+            # predict the noise residual
+            noise_pred = self.unet(
+                latent_model_input, t, encoder_hidden_states=text_embeddings
+            ).sample
+
+            # perform guidance
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+
+            prev_timestep = (
+                t
+                - self.scheduler.config.num_train_timesteps
+                // self.scheduler.num_inference_steps
+            )
+            # call the callback, if provided
+            if callback is not None and i % callback_steps == 0:
+                callback(i, t, latents)
+            
+            # ddim 
+            alpha_prod_t = self.scheduler.alphas_cumprod[t]
+            alpha_prod_t_prev = (
+                self.scheduler.alphas_cumprod[prev_timestep]
+                if prev_timestep >= 0
+                else self.scheduler.final_alpha_cumprod
+            )
+            sig_t = self.scheduler.betas[t]
+            sig_t_prev = (
+                self.scheduler.betas[prev_timestep]
+                if prev_timestep >= 0
+                else self.scheduler.betas[-1] # May be a problem, end or the beginning
+            )
+            if reverse_process:
+                alpha_prod_t, alpha_prod_t_prev = alpha_prod_t_prev, alpha_prod_t
+                sig_t, sig_t_prev = sig_t_prev, sig_t
+            latents = exact_forward_ddim(
+                x_t=latents,
+                alpha_t=alpha_prod_t,
+                alpha_tm1=alpha_prod_t_prev,
+                sig_t = sig_t,
+                sig_tm1 = sig_t_prev,
+                index = i,
                 eps_xt=noise_pred,
             )
 
