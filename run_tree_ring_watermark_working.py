@@ -5,8 +5,6 @@ from tqdm import tqdm
 from statistics import mean, stdev
 from sklearn import metrics
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import numpy as np
 
 import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
@@ -28,41 +26,25 @@ def compare_latents(z, z_comp):
     returns norm(z-z_comp)/norm(z_comp)
     """
     diff = z - z_comp
-    return torch.mean(diff**2)/torch.mean(z**2)
-
-def compare_image(x, x_comp):
-    """
-    parameters
-    x : image after calculation, ndarray
-    x_comp : image for comparison, ndarray
-
-    returns norm(x-x_comp)/norm(x_comp)
-    """
-    x = np.array(x)
-    x_comp = np.array(x_comp)
-    diff = x - x_comp
-    return np.mean(diff**2)/np.mean(x_comp**2)
+    return torch.norm(diff)/torch.norm(z_comp)
 
 def plot_compare(latent, modified_latent, pipe, title):
     # Latent, pipe -> draw image, maybe good to make clean code
         # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
     img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
     img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
-    img_w_correction = (pipe.decode_image(modified_latent)/2+0.5).clamp(0, 1)
+    img_w_correction = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
 
-    plt.figure(figsize=(18, 6))
+    plt.figure()
     plt.subplot(1,3,1)
     plt.imshow(to_pil_image(img[0]))
-    plt.title("Original")
-    plt.tick_params(axis='both', which='both', labelsize=8)
+    plt.title("z")
     plt.subplot(1,3,2)
     plt.imshow(to_pil_image(img_wo_correction[0]))
-    plt.title("Encoder")
-    plt.tick_params(axis='both', which='both', labelsize=8)
+    plt.title("E(D(z))")
     plt.subplot(1,3,3)
     plt.imshow(to_pil_image(img_w_correction[0]))
-    plt.title("Optimization")
-    plt.tick_params(axis='both', which='both', labelsize=8)
+    plt.title("E*(D(z))")
     plt.savefig(title)
     #plt.show()
 
@@ -80,24 +62,19 @@ def plot_compare_errormap(latent, modified_latent, pipe, title):
     error2 = (img_w_correction[0]-img)
     error2norm = torch.sqrt(torch.abs(error2[0])**2 + torch.abs(error2[1])**2 + torch.abs(error2[2])**2)
     error2norm = torch.flip(error2norm, [0])
-
-    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(19.5, 6))
-
-    axes[0].imshow(rgb_to_grayscale(to_pil_image(img[0])))
-    axes[0].set_title("Original") 
-
-    im2 = axes[1].pcolor(error1norm.cpu())
-    axes[1].set_aspect('equal')
-    axes[1].set_title("Encoder")
-
-    im3 = axes[2].pcolor(error2norm.cpu())
-    axes[2].set_aspect('equal')
-    axes[2].set_title("Optimization(Ours)")
-
-    fig.colorbar(im3, ax=axes.ravel().tolist())
-    
-    plt.savefig(title)
-    #plt.show()
+    plt.figure()
+    plt.subplot(1,3,1)
+    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
+    plt.title("z")
+    plt.subplot(1,3,2)
+    plt.pcolor(error1norm.cpu())
+    plt.title("E(D(z))")
+    plt.subplot(1,3,3)
+    plt.pcolor(error2norm.cpu())
+    plt.title("E*(D(z))")
+    plt.colorbar()
+    #plt.savefig(title)
+    plt.show()
 
 def main(args):
     table = None
@@ -109,7 +86,20 @@ def main(args):
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    scheduler = DPMSolverMultistepScheduler.from_pretrained(args.model_id, subfolder='scheduler')
+    # scheduler = DPMSolverMultistepScheduler.from_pretrained(args.model_id, subfolder='scheduler')
+    scheduler = DPMSolverMultistepScheduler(
+        beta_end=0.012,
+        beta_schedule="scaled_linear",
+        beta_start=0.00085,
+        # clip_sample=False,
+        num_train_timesteps=1000,
+        prediction_type="epsilon",
+        # set_alpha_to_one=False,
+        # skip_prk_steps=True,
+        # steps_offset=1,
+        trained_betas=None,
+        solver_order=args.solver_order,
+    )
     pipe = InversableStableDiffusionPipeline.from_pretrained(
         args.model_id,
         scheduler=scheduler,
@@ -138,9 +128,12 @@ def main(args):
     no_w_metrics = []
     w_metrics = []
 
+    accuracy = []
+    accuracy_dist = []
+
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind== 5: #Test on 5 images
+        if ind==10: #Test optimization on 10 images
             break
 
         seed = i + args.gen_seed
@@ -150,7 +143,7 @@ def main(args):
         ### generation
         # generation without watermarking
         set_random_seed(seed)
-        init_latents_no_w = pipe.get_random_latents() # setting random x without WM, gaussian noise
+        init_latents_no_w = pipe.get_random_latents() # setting random x without WM
         outputs_no_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
@@ -162,12 +155,83 @@ def main(args):
             )
         orig_image_no_w = outputs_no_w.images[0] # image generated at the first, without WM
 
-        ## Exp1. Not exact, Origianl
+        # Starting latent analysis with generated image
+        orig_image = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        test = pipe.get_image_latents(orig_image, sample=False)
+
+        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
+        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
+        corrected_error = compare_latents(test, image_latents_w_modified)
+        single_improvement = (original_error-corrected_error)/original_error*100
+
+        print(f"compare error : {original_error}")
+        print(f"error after optimization : {corrected_error}")
+        print(f"Improvement : {single_improvement}%")
+        
+        accuracy.append(single_improvement)
+
+        plot_name = './data/'+str(i)+'.png'
+        errorplot_name = './errordata/'+str(i)+'.png'
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+
+        # Test on image distortion
+        orig_image_auged = image_distortion_single(orig_image_no_w, seed, args)
+
+        img_no_w = transform_img(orig_image_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        test = pipe.get_image_latents(img_no_w, sample=False)
+
+        image_latents_w_modified = pipe.edcorrector(pipe.decode_image(test), text_embeddings) # input as the image
+        original_error = compare_latents(test, pipe.get_image_latents(pipe.decode_image(test)))
+        corrected_error = compare_latents(test, image_latents_w_modified)
+        single_improvement = (original_error-corrected_error)/original_error*100
+
+        print(f"compare error_dist : {original_error}")
+        print(f"error after optimization_dist : {corrected_error}")
+        print(f"Improvement_dist : {single_improvement}%")
+
+        accuracy_dist.append(single_improvement)
+
+        plot_name = './distortiondata/'+str(i)+'.png'
+        errorplot_name = './distortionerrordata/'+str(i)+'.png'
+        #plot_compare(test, image_latents_w_modified, pipe, plot_name)
+        #plot_compare_errormap(test, image_latents_w_modified, pipe, errorplot_name)
+
+        # 170~249 is annotated to make experiment fast
+        
+        # generation with watermark
+        if init_latents_no_w is None:
+            set_random_seed(seed)
+            init_latents_w = pipe.get_random_latents()
+        else:
+            init_latents_w = copy.deepcopy(init_latents_no_w)
+
+        # get watermarking mask
+        watermarking_mask = get_watermarking_mask(init_latents_w, args, device) # Get initial 
+
+        # inject watermark, injection occurs on frequency domain
+        init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args) # Saves latent with WM
+
+        outputs_w = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=init_latents_w,
+            ) # Not a single tensor, a pipeline structure containing "images", "nsfw_content_detected", "init_latents"
+        orig_image_w = outputs_w.images[0]
+
+        ### test watermark
+        # distortion
+        orig_image_no_w_auged, orig_image_w_auged = image_distortion(orig_image_no_w, orig_image_w, seed, args)
+
         # reverse img without watermarking
-        img_no_w = transform_img(orig_image_no_w).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
         image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
-        # noise (forward_diffusion gives the noise)
+        # forward_diffusion -> inversion
         reversed_latents_no_w = pipe.forward_diffusion(
             latents=image_latents_no_w,
             text_embeddings=text_embeddings,
@@ -175,102 +239,18 @@ def main(args):
             num_inference_steps=args.test_num_inference_steps,
         )
 
-        # re-reverse img without watermarking -> image
-        re_outputs_no_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=reversed_latents_no_w
-            )
-        re_reversed_image_no_w =re_outputs_no_w.images[0]
+        # reverse img with watermarking
+        img_w = transform_img(orig_image_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        image_latents_w = pipe.get_image_latents(img_w, sample=False)
 
-        # Exp1-1. Noise2Noise
-        print(f"Exp 1-1, Error : {compare_latents(reversed_latents_no_w, init_latents_no_w)}")
-        # Exp1-2. Img2Img
-        print(f"Exp 1-2, Error : {compare_image(re_reversed_image_no_w, orig_image_no_w)}")
-
-        """
-        # Exp2. Exact Decoder Inversion Only
-        dec_exact_image_latents_no_w = pipe.edcorrector(img_no_w)
-        dec_exact_reversed_latents_no_w = pipe.forward_diffusion(
-            latents=dec_exact_image_latents_no_w,
+        # forward_diffusion -> inversion
+        reversed_latents_w = pipe.forward_diffusion(
+            latents=image_latents_w,
             text_embeddings=text_embeddings,
             guidance_scale=1,
             num_inference_steps=args.test_num_inference_steps,
         )
-
-        dec_exact_re_outputs_no_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=dec_exact_reversed_latents_no_w
-            )
-        dec_exact_re_reversed_image_no_w = dec_exact_re_outputs_no_w.images[0]
-
-        # Exp2-1. Noise2Noise
-        print(f"Exp 2-1, Error : {compare_latents(dec_exact_reversed_latents_no_w, init_latents_no_w)}")
-        # Exp2-2. Img2Img
-        print(f"Exp 2-2, Error : {compare_image(dec_exact_re_reversed_image_no_w, orig_image_no_w)}")
-        """
-
-        # Exp3. Exact DDIM Inversion Only
-        ddim_exact_image_latents_no_w = image_latents_no_w
-        ddim_exact_reversed_latents_no_w = pipe.exact_forward_diffusion(
-            latents=ddim_exact_image_latents_no_w,
-            text_embeddings=text_embeddings,
-            guidance_scale=1,
-            num_inference_steps=args.test_num_inference_steps,
-        )
-
-        ddim_exact_re_outputs_no_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=ddim_exact_reversed_latents_no_w
-            )
-        ddim_exact_re_reversed_image_no_w = ddim_exact_re_outputs_no_w.images[0]
-
-        # Exp3-1. Noise2Noise
-        print(f"Exp 3-1, Error : {compare_latents(ddim_exact_reversed_latents_no_w, init_latents_no_w)}")
-        # Exp3-2. Img2Img
-        print(f"Exp 3-2, Error : {compare_image(ddim_exact_re_reversed_image_no_w, orig_image_no_w)}")
         
-        # Exp4. Both Exact DDIM and Decoder Inversion
-        dnd_exact_image_latents_no_w = pipe.edcorrector(img_no_w)
-        dnd_exact_reversed_latents_no_w = pipe.exact_forward_diffusion(
-            latents=dnd_exact_image_latents_no_w,
-            text_embeddings=text_embeddings,
-            guidance_scale=1,
-            num_inference_steps=args.test_num_inference_steps,
-        )
-
-        dnd_exact_re_outputs_no_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=dnd_exact_reversed_latents_no_w
-            )
-        dnd_exact_re_reversed_image_no_w = dnd_exact_re_outputs_no_w.images[0]
-
-        # Exp4-1. Noise2Noise
-        print(f"Exp 4-1, Error : {compare_latents(dnd_exact_reversed_latents_no_w, init_latents_no_w)}")
-        # Exp4-2. Img2Img
-        print(f"Exp 4-2, Error : {compare_image(dnd_exact_re_reversed_image_no_w, orig_image_no_w)}")
-
-
-        """
         ## Evaluation on quality of the watermark
         # eval
         no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
@@ -299,11 +279,30 @@ def main(args):
 
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
-        """
+        
         ind = ind + 1
 
+    # LKH : Show results of optimization
+    accuracy_list = []
+    for i in accuracy:
+        accuracy_list.append(i.cpu().detach().numpy())
+    accuracy_list = np.array(accuracy_list, dtype=np.float64)
+    
+    print(f"accuracy mean : {accuracy_list.mean()}")
+    print(f"accuracy min : {accuracy_list.min()}")
+    print(f"accuracy max : {accuracy_list.max()}")
+    print(f"accuracy var : {accuracy_list.var()}")
 
-    """
+    accuracy_list_dist = []
+    for i in accuracy_dist:
+        accuracy_list_dist.append(i.cpu().detach().numpy())
+    accuracy_list_dist = np.array(accuracy_list_dist, dtype=np.float64)
+    
+    print(f"accuracy mean : {accuracy_list_dist.mean()}")
+    print(f"accuracy min : {accuracy_list_dist.min()}")
+    print(f"accuracy max : {accuracy_list_dist.max()}")
+    print(f"accuracy var : {accuracy_list_dist.var()}")
+
     # roc
     preds = no_w_metrics +  w_metrics
     t_labels = [1] * len(no_w_metrics) + [0] * len(w_metrics)
@@ -322,7 +321,7 @@ def main(args):
     print(f'clip_score_mean: {mean(clip_scores)}')
     print(f'w_clip_score_mean: {mean(clip_scores_w)}')
     print(f'auc: {auc}, acc: {acc}, TPR@1%FPR: {low}')
-    """
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='diffusion watermark')
@@ -361,6 +360,9 @@ if __name__ == '__main__':
     parser.add_argument('--gaussian_std', default=None, type=float)
     parser.add_argument('--brightness_factor', default=None, type=float)
     parser.add_argument('--rand_aug', default=0, type=int)
+
+    # for exact ddim inversion
+    parser.add_argument('--solver_order', default=2, type=int)
 
     args = parser.parse_args()
 
