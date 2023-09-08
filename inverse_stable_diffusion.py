@@ -333,6 +333,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                             phi_1 = torch.expm1(-h)
                             model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            model_s = self.scheduler.step(model_s, s, latent_model_input).prev_sample
 
                             y_t = y
 
@@ -353,6 +354,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                         alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                         phi_1 = torch.expm1(-h)
                         model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                        model_s = self.scheduler.step(model_s, s, latent_model_input).prev_sample
 
                         x_t = latents
                         if not inverse_opt:
@@ -366,10 +368,12 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             y_t_model_input = (torch.cat([y_t] * 2) if do_classifier_free_guidance else y_t)
                             y_t_model_input = self.scheduler.scale_model_input(y_t, s)
                             model_s_output = self.unet(y_t_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            model_s_output = self.scheduler.step(model_s_output, s, latent_model_input).prev_sample
 
                             y_model_input = (torch.cat([y] * 2) if do_classifier_free_guidance else y)
                             y_model_input = self.scheduler.scale_model_input(y, r)
                             model_r_output = self.unet(y_model_input, r, encoder_hidden_states=text_embeddings).sample
+                            model_r_output = self.scheduler.step(model_r_output, s, latent_model_input).prev_sample
                         
                             # not naive DDIM inversion
                             latents = (
