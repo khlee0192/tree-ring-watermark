@@ -188,7 +188,6 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         return latents
 
-    @torch.inference_mode()
     def forward_diffusion(
         self,
         use_old_emb_i=25,
@@ -225,110 +224,131 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         else:
             prompt_to_prompt = False
 
+        with torch.no_grad():
+            for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
+                if prompt_to_prompt:
+                    if i < use_old_emb_i:
+                        text_embeddings = old_text_embeddings
+                    else:
+                        text_embeddings = new_text_embeddings
 
-        for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
-            if prompt_to_prompt:
-                if i < use_old_emb_i:
-                    text_embeddings = old_text_embeddings
-                else:
-                    text_embeddings = new_text_embeddings
-
-            # expand the latents if we are doing classifier free guidance
-            latent_model_input = (
-                torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            )
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-
-            # predict the noise residual
-            noise_pred = self.unet(
-                latent_model_input, t, encoder_hidden_states=text_embeddings
-            ).sample
-
-            # perform guidance
-            if do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
+                # expand the latents if we are doing classifier free guidance
+                latent_model_input = (
+                    torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 )
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-            prev_timestep = (
-                t
-                - self.scheduler.config.num_train_timesteps
-                // self.scheduler.num_inference_steps
-            )
-            # call the callback, if provided
-            if callback is not None and i % callback_steps == 0:
-                callback(i, t, latents)
-            
-            # ddim - original
-            # alpha_prod_t = self.scheduler.alphas_cumprod[t]
-            # alpha_prod_t_prev = (
-            #     self.scheduler.alphas_cumprod[prev_timestep]
-            #     if prev_timestep >= 0
-            #     else self.scheduler.final_alpha_cumprod
-            # )
-            # if reverse_process:
-            #     alpha_prod_t, alpha_prod_t_prev = alpha_prod_t_prev, alpha_prod_t
-            # latents = backward_ddim(
-            #     x_t=latents,
-            #     alpha_t=alpha_prod_t,
-            #     alpha_tm1=alpha_prod_t_prev,
-            #     eps_xt=noise_pred,
-            # )
+                # predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input, t, encoder_hidden_states=text_embeddings
+                ).sample
 
-            # Our Algorithm
+                # perform guidance
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (
+                        noise_pred_text - noise_pred_uncond
+                    )
 
-            # Algorithm 1
-            if self.scheduler.solver_order == 1:
-                with torch.no_grad():
-                    if (i + 2 < len(timesteps_tensor)):
-                        s = timesteps_tensor[i + 1]
-                        r = timesteps_tensor[i + 2]
-                        
-                        lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-                        sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
-                        h = lambda_t - lambda_s
-                        alphas, alphat = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
-                        phi_1 = torch.expm1(-h)
-                        model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                prev_timestep = (
+                    t
+                    - self.scheduler.config.num_train_timesteps
+                    // self.scheduler.num_inference_steps
+                )
+                # call the callback, if provided
+                if callback is not None and i % callback_steps == 0:
+                    callback(i, t, latents)
+                
+                # ddim - original
+                # alpha_prod_t = self.scheduler.alphas_cumprod[t]
+                # alpha_prod_t_prev = (
+                #     self.scheduler.alphas_cumprod[prev_timestep]
+                #     if prev_timestep >= 0
+                #     else self.scheduler.final_alpha_cumprod
+                # )
+                # if reverse_process:
+                #     alpha_prod_t, alpha_prod_t_prev = alpha_prod_t_prev, alpha_prod_t
+                # latents = backward_ddim(
+                #     x_t=latents,
+                #     alpha_t=alpha_prod_t,
+                #     alpha_tm1=alpha_prod_t_prev,
+                #     eps_xt=noise_pred,
+                # )
 
-                        x_t = latents
+                # Our Algorithm
 
-                        latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
+                # Algorithm 1
+                if self.scheduler.solver_order == 1:
+                    with torch.no_grad():
+                        if (i + 2 < len(timesteps_tensor)):
+                            s = timesteps_tensor[i + 1]
+                            r = timesteps_tensor[i + 2]
+                            
+                            lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
+                            sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                            h = lambda_t - lambda_s
+                            alphas, alphat = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                            phi_1 = torch.expm1(-h)
+                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
 
-                        if (inverse_opt):
-                            torch.set_grad_enabled(True)
-                            latents = self.differential_correction(latents, s, t, x_t, order=self.scheduler.solver_order, r=r, text_embeddings=text_embeddings)
-                            torch.set_grad_enabled(False)
+                            x_t = latents
 
-                    elif (i + 2 == len(timesteps_tensor)):
-                        s = timesteps_tensor[i + 1]
+                            latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
 
-                        lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-                        sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
-                        h = lambda_t - lambda_s
-                        alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
-                        phi_1 = torch.expm1(-h)
-                        model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            if (inverse_opt):
+                                torch.set_grad_enabled(True)
+                                latents = self.differential_correction(latents, s, t, x_t, order=self.scheduler.solver_order, r=r, text_embeddings=text_embeddings)
+                                torch.set_grad_enabled(False)
 
-                        x_t = latents
+                        elif (i + 2 == len(timesteps_tensor)):
+                            s = timesteps_tensor[i + 1]
 
-                        latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
+                            lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
+                            sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                            h = lambda_t - lambda_s
+                            alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                            phi_1 = torch.expm1(-h)
+                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
 
-                        if (inverse_opt):
-                            torch.set_grad_enabled(True)
-                            latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings)
-                            torch.set_grad_enabled(False)
+                            x_t = latents
 
-            # Algorithm 2
-            elif self.scheduler.solver_order == 2:
-                with torch.no_grad():
-                    if (i + 2 < len(timesteps_tensor)):
-                        y = latents.clone()
-                        for step in range(i, i+2, 1):
-                            s = timesteps_tensor[i]
-                            t = timesteps_tensor[i+1]
-                            r = timesteps_tensor[i+2]
+                            latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
+
+                            if (inverse_opt):
+                                torch.set_grad_enabled(True)
+                                latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings)
+                                torch.set_grad_enabled(False)
+
+                # Algorithm 2
+                elif self.scheduler.solver_order == 2:
+                    with torch.no_grad():
+                        if (i + 2 < len(timesteps_tensor)):
+                            y = latents.clone()
+                            for step in range(i, i+2, 1):
+                                s = timesteps_tensor[i]
+                                t = timesteps_tensor[i+1]
+                                r = timesteps_tensor[i+2]
+
+                                lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
+                                sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                                h = lambda_t - lambda_s
+                                alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                                phi_1 = torch.expm1(-h)
+                                model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                                model_s = self.scheduler.step(model_s, s, latent_model_input).prev_sample
+
+                                y_t = y
+
+                                y = (sigma_s / sigma_t * y + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
+                                
+                                if inverse_opt:
+                                    torch.set_grad_enabled(True)
+                                    y = self.differential_correction(y, s, t, y_t, order=self.scheduler.solver_order, r=r, text_embeddings=text_embeddings)
+                                    torch.set_grad_enabled(False)
+                            
+                            # outer step
+                            s = timesteps_tensor[i+1]
+                            t = timesteps_tensor[i+2]
 
                             lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
                             sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
@@ -338,58 +358,37 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
                             model_s = self.scheduler.step(model_s, s, latent_model_input).prev_sample
 
-                            y_t = y
+                            x_t = latents
+                            if not inverse_opt:
+                                # naive DDIM inversion
+                                latents = (
+                                    sigma_s / sigma_t * latents
+                                    + sigma_s / sigma_t * alpha_t * phi_1 * model_s
+                                )
 
-                            y = (sigma_s / sigma_t * y + sigma_s / sigma_t * alpha_t * phi_1 * model_s)
-                            
                             if inverse_opt:
+                                y_t_model_input = (torch.cat([y_t] * 2) if do_classifier_free_guidance else y_t)
+                                y_t_model_input = self.scheduler.scale_model_input(y_t, s)
+                                model_s_output = self.unet(y_t_model_input, s, encoder_hidden_states=text_embeddings).sample
+                                model_s_output = self.scheduler.step(model_s_output, s, latent_model_input).prev_sample
+
+                                y_model_input = (torch.cat([y] * 2) if do_classifier_free_guidance else y)
+                                y_model_input = self.scheduler.scale_model_input(y, r)
+                                model_r_output = self.unet(y_model_input, r, encoder_hidden_states=text_embeddings).sample
+                                model_r_output = self.scheduler.step(model_r_output, s, latent_model_input).prev_sample
+                            
+                                # not naive DDIM inversion
+                                latents = (
+                                    sigma_s / sigma_t * latents
+                                    + sigma_s / sigma_t * alpha_t * phi_1 * model_s_output
+                                )
                                 torch.set_grad_enabled(True)
-                                y = self.differential_correction(y, s, t, y_t, order=self.scheduler.solver_order, r=r, text_embeddings=text_embeddings)
+                                # latents stay the same for now
+                                latents = self.differential_correction(latents, s, t, x_t, order=self.scheduler.solver_order, r=r, 
+                                                                model_s_output = model_s_output, model_r_output = model_r_output, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
-                        
-                        # outer step
-                        s = timesteps_tensor[i+1]
-                        t = timesteps_tensor[i+2]
-
-                        lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-                        sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
-                        h = lambda_t - lambda_s
-                        alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
-                        phi_1 = torch.expm1(-h)
-                        model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
-                        model_s = self.scheduler.step(model_s, s, latent_model_input).prev_sample
-
-                        x_t = latents
-                        if not inverse_opt:
-                            # naive DDIM inversion
-                            latents = (
-                                sigma_s / sigma_t * latents
-                                + sigma_s / sigma_t * alpha_t * phi_1 * model_s
-                            )
-
-                        if inverse_opt:
-                            y_t_model_input = (torch.cat([y_t] * 2) if do_classifier_free_guidance else y_t)
-                            y_t_model_input = self.scheduler.scale_model_input(y_t, s)
-                            model_s_output = self.unet(y_t_model_input, s, encoder_hidden_states=text_embeddings).sample
-                            model_s_output = self.scheduler.step(model_s_output, s, latent_model_input).prev_sample
-
-                            y_model_input = (torch.cat([y] * 2) if do_classifier_free_guidance else y)
-                            y_model_input = self.scheduler.scale_model_input(y, r)
-                            model_r_output = self.unet(y_model_input, r, encoder_hidden_states=text_embeddings).sample
-                            model_r_output = self.scheduler.step(model_r_output, s, latent_model_input).prev_sample
-                        
-                            # not naive DDIM inversion
-                            latents = (
-                                sigma_s / sigma_t * latents
-                                + sigma_s / sigma_t * alpha_t * phi_1 * model_s_output
-                            )
-                            torch.set_grad_enabled(True)
-                            # latents stay the same for now
-                            latents = self.differential_correction(latents, s, t, x_t, order=self.scheduler.solver_order, r=r, 
-                                                            model_s_output = model_s_output, model_r_output = model_r_output, text_embeddings=text_embeddings)
-                            torch.set_grad_enabled(False)
-            else:
-                pass
+                else:
+                    pass
 
         return latents    
 
@@ -604,7 +603,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             assert r is not None
             # only for multistep
             import copy
-            model = copy.deepcopy(self.unet)
+            model = copy.deepcopy(self.unet).requires_grad_(True)
             input = x.clone()
 
             x_t = x_t.clone()   
