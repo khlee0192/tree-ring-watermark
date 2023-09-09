@@ -217,6 +217,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         timesteps_tensor = self.scheduler.timesteps.to(self.device)
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.scheduler.init_noise_sigma
+        # To make it a reverse
+        reverse_process = True
 
         if old_text_embeddings is not None and new_text_embeddings is not None:
             prompt_to_prompt = True
@@ -258,7 +260,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             if callback is not None and i % callback_steps == 0:
                 callback(i, t, latents)
             
-            # ddim 
+            # ddim - original
             # alpha_prod_t = self.scheduler.alphas_cumprod[t]
             # alpha_prod_t_prev = (
             #     self.scheduler.alphas_cumprod[prev_timestep]
@@ -324,7 +326,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     if (i + 2 < len(timesteps_tensor)):
                         y = latents.clone()
                         for step in range(i, i+2, 1):
-                            s = timesteps_tensor[i+1]
+                            s = timesteps_tensor[i]
+                            t = timesteps_tensor[i+1]
                             r = timesteps_tensor[i+2]
 
                             lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
@@ -346,7 +349,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                         
                         # outer step
                         s = timesteps_tensor[i+1]
-                        r = timesteps_tensor[i+2]
+                        t = timesteps_tensor[i+2]
 
                         lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
                         sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
@@ -381,6 +384,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 + sigma_s / sigma_t * alpha_t * phi_1 * model_s_output
                             )
                             torch.set_grad_enabled(True)
+                            # latents stay the same for now
                             latents = self.differential_correction(latents, s, t, x_t, order=self.scheduler.solver_order, r=r, 
                                                             model_s_output = model_s_output, model_r_output = model_r_output, text_embeddings=text_embeddings)
                             torch.set_grad_enabled(False)
