@@ -607,7 +607,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             input = x.clone()
 
             x_t = x_t.clone()   
-
+            t = t.clone()
+            text_embeddings = text_embeddings.clone()
             ## Use Float
             # model = model.float()
             # input = input.float()
@@ -619,6 +620,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             
             # for 2nd order correction
             model_t_output = model(x_t, t, encoder_hidden_states=text_embeddings).sample.detach()
+            model_t_output = self.scheduler.dpm_solver_first_order_update(model_t_output, t, s, input)
+            model_t_output.detach()
+
             lambda_prev_1, lambda_prev_0, lambda_t = self.scheduler.lambda_t[r], self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
             sigma_prev_0, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
             alpha_t = self.scheduler.alpha_t[t]
@@ -643,7 +647,6 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 if loss.item() < th:
                     break             
                 optimizer.zero_grad()
-                loss.requires_grad_(True)
                 loss.backward()
                 optimizer.step()
             return input
