@@ -29,7 +29,7 @@
                 "--num_inference_steps", "50",
                 //"--edcorrector",
                 //"--inv_naive",
-                //"--inv_order", "2",
+                "--inv_order", "2",
                 //"--test_num_inference_steps", "10"
                 //"--prompt_reuse"
 

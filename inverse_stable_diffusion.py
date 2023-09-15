@@ -233,7 +233,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 timesteps_tensor = reversed(timesteps_tensor)
 
             for i, t in enumerate(self.progress_bar(timesteps_tensor)):
-                #print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
+                print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
                 if prompt_to_prompt:
                     if i < use_old_emb_i:
                         text_embeddings = old_text_embeddings
@@ -317,6 +317,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                         if (i + 2 < len(timesteps_tensor)):
                             x_tM = latents.clone() # line 3
                             for j in range(i, i+2, 1): # line 4
+                                if j+2 == len(timesteps_tensor):
+                                    break
+                                    #temporary
                                 y_tj = x_tM # do at line 4, further used as y_tj
                                 t_j = timesteps_tensor[j+1]
                                 t_jm1 = timesteps_tensor[j+2]
@@ -326,6 +329,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 lambda_j, lambda_jm1 = self.scheduler.lambda_t[t_j], self.scheduler.lambda_t[t_jm1]
                                 sigma_j, sigma_jm1 = self.scheduler.sigma_t[t_j], self.scheduler.sigma_t[t_jm1]
                                 alpha_j, alpha_jm1 = self.scheduler.alpha_t[t_j], self.scheduler.alpha_t[t_jm1]
+
                                 h = lambda_j - lambda_jm1
                                 phi_1 = torch.expm1(-h)
                                 model_s = self.unet(y_tj, t_jm1, encoder_hidden_states=text_embeddings).sample
@@ -348,7 +352,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                             lambda_j, lambda_jm1 = self.scheduler.lambda_t[t_j], self.scheduler.lambda_t[t_jm1]
                             sigma_j, sigma_jm1 = self.scheduler.sigma_t[t_j], self.scheduler.sigma_t[t_jm1]
-                            alpha_j, alpha_jm1 = self.scheduler.alpha_t[t_j], self.scheduler.alpha_t[t_jm1]                            
+                            alpha_j, alpha_jm1 = self.scheduler.alpha_t[t_j], self.scheduler.alpha_t[t_jm1]
+
                             h = lambda_j - lambda_jm1
 
                             phi_1 = torch.expm1(-h)
@@ -361,6 +366,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                     sigma_jm1/sigma_j*x_tM
                                     + sigma_jm1 / sigma_j * alpha_j * phi_1 * x_theta
                                 )
+                                latents = x_tim1
 
                             if inverse_opt:
                                 # check
@@ -383,10 +389,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                                 # check
                                 torch.set_grad_enabled(True)
-                                x_tjm1 = self.differential_correction(x_tjm1, x_tM, t_j, t_jm1, r=r, text_embeddings=text_embeddings)
+                                x_tim1 = self.differential_correction(x_tim1, x_tM, t_j, t_jm1, r=r, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
                             
-                            latents = x_tim1
+                                latents = x_tim1
 
                         elif (i + 2 == len(timesteps_tensor)):
                             t_1 = timesteps_tensor[i]
@@ -410,7 +416,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             )
                             if inverse_opt:
                                 torch.set_grad_enabled(True)
-                                x_0 = self.differential_correction(x_0, t_1, t_0, latents, order=1, text_embeddings=text_embeddings)
+                                x_0 = self.differential_correction(x_0, latents, t_1, t_0, order=1, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)    
                                     
                             latents = x_0
