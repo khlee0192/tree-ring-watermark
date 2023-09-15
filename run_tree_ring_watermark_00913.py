@@ -188,6 +188,15 @@ def main(args):
         img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
         image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
+        # test original trw
+        test_reversed_latents_no_w = pipe.backward_diffusion(
+            latents=image_latents_no_w,
+            text_embeddings=text_embeddings,
+            guidance_scale=1,
+            num_inference_steps=args.test_num_inference_steps,
+            reverse_process=False,
+        )
+
         # forward_diffusion -> inversion
         reversed_latents_no_w = pipe.forward_diffusion(
             latents=image_latents_no_w,
@@ -195,6 +204,19 @@ def main(args):
             guidance_scale=1,
             num_inference_steps=args.test_num_inference_steps,
         )
+
+        # forward_diffusion with edcorrector
+        ed_image_latents_no_w = pipe.edcorrector(img_no_w)
+        ed_reversed_latents_no_w = pipe.forward_diffusion(
+            latents=ed_image_latents_no_w,
+            text_embeddings=text_embeddings,
+            guidance_scale=1,
+            num_inference_steps=args.test_num_inference_steps,
+        )
+
+        print(f"original : {compare_latents(test_reversed_latents_no_w, init_latents_no_w)}")
+        print(f"ours : {compare_latents(reversed_latents_no_w, init_latents_no_w)}")
+        print(f"ours(with edcorrector) : {compare_latents(ed_reversed_latents_no_w, init_latents_no_w)}")
 
         # reverse img with watermarking
         img_w = transform_img(orig_image_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
