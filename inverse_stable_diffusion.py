@@ -336,7 +336,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                                 if inverse_opt:
                                     torch.set_grad_enabled(True)
-                                    y_tjm1 = self.differential_correction(y_tjm1, y_tj, t_j, t_jm1, r=r, text_embeddings=text_embeddings)
+                                    y_tjm1 = self.differential_correction(y_tjm1, y_tj, t_jm1, t_j, r=r, text_embeddings=text_embeddings)
                                     torch.set_grad_enabled(False)
                                 
                                 x_tM = y_tjm1
@@ -600,23 +600,40 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     #     return latents
     
-    def differential_correction(self, y_tjm1, y_tj, t_j, t_jm1, r=None, order=2, n_iter=100, lr=0.1, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
+    def differential_correction(self, y_tjm1, y_tj, t_jm1, t_j, r=None, order=1, n_iter=100, lr=0.1, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
         if order==1:
             import copy
             model = copy.deepcopy(self.unet)
-            input = y_tjm1.clone()
-            x_t = y_tj.clone()
+            input = y_tjm1.clone() # the output
+            x_t = y_tj.clone() # # comparing x_t
             text_embeddings = text_embeddings.clone()
+
+            lambda_tj = self.scheduler.lambda_t[t_j]
+            lambda_tjm1 = self.scheduler.lambda_t[t_jm1]
+
+            sigma_tj = self.scheduler.sigma_t[t_j]
+            sigma_tjm1 = self.scheduler.sigma_t[t_jm1]
+            
+            alpha_tj = self.scheduler.alpha_t[t_j]
+
+            h_j = lambda_tj - lambda_tjm1
+            phi_1 = torch.expm1(-h_j)
 
             input.requires_grad_(True)
             loss_function = torch.nn.MSELoss(reduction='sum')
             optimizer = torch.optim.SGD([input], lr=lr)
 
             for i in range(n_iter):
+                """
                 model_output = model(input, t_jm1, encoder_hidden_states=text_embeddings).sample # estimated noise
                 model_output = self.scheduler.step(model_output, t_jm1, input).prev_sample.detach()
 
                 x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t_j, t_jm1, input)
+                """
+
+                temp = model(input, t_jm1, encoder_hidden_states=text_embeddings).sample
+                x_theta = self.scheduler.step(temp, t_jm1, input).prev_sample
+                x_t_pred = sigma_tj/sigma_tjm1*input - alpha_tj*phi_1*x_theta
 
                 loss = loss_function(x_t_pred, x_t)
                 #print(f"t: {t}, Iteration {i}, Loss: {loss.item():.6f}")
@@ -631,17 +648,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             # only for multistep
             import copy
             model = copy.deepcopy(self.unet)
-            input = y_tjm1.clone()
-            x_t = y_tj.clone()   
+            x_jm1 = y_tjm1.clone()
+            x_j = y_tj.clone()   
             text_embeddings = text_embeddings.clone()
 
-            input.requires_grad_(True)
+            x_jm1.requires_grad_(True)
             loss_function = torch.nn.MSELoss(reduction='sum')
             optimizer = torch.optim.SGD([input], lr=lr)
-            
-            # for 2nd order correction
-            model_t_output = model(x_t, t_jm1, encoder_hidden_states=text_embeddings).sample.detach()
-            model_t_output2 = self.scheduler.step(model_t_output, t_jm1, x_t).prev_sample.detach()
 
             lambda_tj = self.scheduler.lambda_t[t_j]
             lambda_tjm1 = self.scheduler.lambda_t[t_jm1]
@@ -656,6 +669,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             h = lambda_r - lambda_tj
             r0 = h_0 / h
             phi_1 = torch.expm1(-h)
+            
+            # for 2nd order correction
+            model_t_output = model(x_t, t_jm1, encoder_hidden_states=text_embeddings).sample.detach()
+            model_t_output2 = self.scheduler.step(model_t_output, t_jm1, x_t).prev_sample.detach()
 
             for i in range(n_iter):
                 model_output = model(input, t_jm1, encoder_hidden_states=text_embeddings).sample # estimated noise
