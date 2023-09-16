@@ -202,7 +202,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
         reverse_process=True,
-        inverse_opt=True,
+        inverse_opt=False,
         inv_order=None,
         **kwargs,
     ):  
@@ -233,7 +233,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 timesteps_tensor = reversed(timesteps_tensor)
 
             for i, t in enumerate(self.progress_bar(timesteps_tensor)):
-                #print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
+                print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
                 if prompt_to_prompt:
                     if i < use_old_emb_i:
                         text_embeddings = old_text_embeddings
@@ -317,6 +317,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                         if (i + 2 < len(timesteps_tensor)):
                             x_tM = latents.clone() # line 3
                             for j in range(i, i+2, 1): # line 4
+                                if(j+2 == len(timesteps_tensor)):
+                                    break
                                 y_tj = x_tM # do at line 4, further used as y_tj
                                 t_j = timesteps_tensor[j+1]
                                 t_jm1 = timesteps_tensor[j+2]
@@ -329,10 +331,25 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 h = lambda_j - lambda_jm1
                                 phi_1 = torch.expm1(-h)
                                 model_s = self.unet(y_tj, t_jm1, encoder_hidden_states=text_embeddings).sample
-                                x_theta = self.scheduler.step(model_s, t_jm1, y_tj).prev_sample
+                                x_theta = self.scheduler.step(model_s, t_jm1, latents).prev_sample
 
+                                y_tjm1 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_jm1*phi_1*x_theta)
+
+                                """
                                 #y = (sigma_r / sigma_s * y + sigma_r / sigma_s * alpha_s * phi_1 * model_s)
-                                y_tjm1 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_j*phi_1*x_theta) # line 5
+                                y_tjm1 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_j*phi_1*model_s) # line 5
+                                y_2 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_jm1*phi_1*model_s)
+                                y_3 = (sigma_j/sigma_jm1*y_tj + sigma_j/sigma_jm1*alpha_j*phi_1*model_s)
+                                y_4 = (sigma_j/sigma_jm1*y_tj + sigma_j/sigma_jm1*alpha_jm1*phi_1*model_s)
+
+                                y_5 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_j*phi_1*x_theta) # line 5
+                                y_6 = (sigma_jm1/sigma_j*y_tj + sigma_jm1/sigma_j*alpha_jm1*phi_1*x_theta)
+                                y_7 = (sigma_j/sigma_jm1*y_tj + sigma_j/sigma_jm1*alpha_j*phi_1*x_theta)
+                                y_8 = (sigma_j/sigma_jm1*y_tj + sigma_j/sigma_jm1*alpha_jm1*phi_1*x_theta)
+
+                                print(y_tj.std().item())
+                                print(f"{y_tjm1.std().item()}, {y_2.std().item()}, {y_3.std().item()}, {y_4.std().item()}, {y_5.std().item()}, {y_6.std().item()}, {y_7.std().item()}, {y_8.std().item()}")
+                                """
 
                                 if inverse_opt:
                                     torch.set_grad_enabled(True)
@@ -357,10 +374,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                             if not inverse_opt:
                                 # naive DDIM inversion
-                                x_tim1 = (
-                                    sigma_jm1/sigma_j*x_tM
-                                    + sigma_jm1 / sigma_j * alpha_j * phi_1 * x_theta
-                                )
+                                #x_tim1 = (sigma_jm1/sigma_j*x_tM+ sigma_jm1 / sigma_j * alpha_jm1 * phi_1 * model_s)
+                                x_tim1 = (sigma_jm1/sigma_j*x_tM + sigma_jm1/sigma_j*alpha_jm1*phi_1*x_theta)
 
                             if inverse_opt:
                                 # check
@@ -378,12 +393,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 # OK
                                 x_tim1 = (
                                     sigma_jm1/sigma_j*x_tM
-                                    + sigma_jm1 / sigma_j * alpha_j * phi_1 * x_theta
+                                    + sigma_jm1/ sigma_j * alpha_jm1 * phi_1 * x_theta
                                 )
 
                                 # check
                                 torch.set_grad_enabled(True)
-                                x_tjm1 = self.differential_correction(x_tjm1, x_tM, t_j, t_jm1, r=r, text_embeddings=text_embeddings)
+                                x_tim1 = self.differential_correction(x_tim1, x_tM, t_j, t_jm1, r=r, text_embeddings=text_embeddings,
+                                                                      model_s_output=model_t_output, model_r_output=model_tm1_output)
                                 torch.set_grad_enabled(False)
                             
                             latents = x_tim1
@@ -394,20 +410,18 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                             lambda_1, lambda_0 = self.scheduler.lambda_t[t_1], self.scheduler.lambda_t[t_0]
                             sigma_1, sigma_0 = self.scheduler.sigma_t[t_1], self.scheduler.sigma_t[t_0]
-                            alpha_1 = self.scheduler.alpha_t[t_1]
+                            alpha_1, alpha_0 = self.scheduler.alpha_t[t_1], self.scheduler.alpha_t[t_0]
 
                             h = lambda_1 - lambda_0
                             
                             phi_1 = torch.expm1(-h)
                             model_s = self.unet(latents, t_0, encoder_hidden_states=text_embeddings).sample
-                            model_s = self.scheduler.step(model_s, t_0, latents).prev_sample
-                            x_theta = latents
+                            x_theta = self.scheduler.step(model_s, t_0, latents).prev_sample
+                            #x_theta = latents
 
                             # naive DDIM inversion
-                            x_0 = (
-                                sigma_1 / sigma_0 * latents
-                                + sigma_1 / sigma_0 * alpha_1 * phi_1 * x_theta
-                            )
+                            #x_0 = (sigma_0 / sigma_1 * latents+ sigma_0 / sigma_1 * alpha_1 * phi_1 * model_s)
+                            x_0 = (sigma_0/sigma_1*latents + sigma_0/sigma_1*alpha_0*phi_1*x_theta)
                             if inverse_opt:
                                 torch.set_grad_enabled(True)
                                 x_0 = self.differential_correction(x_0, t_1, t_0, latents, order=1, text_embeddings=text_embeddings)
@@ -632,7 +646,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 """
 
                 temp = model(input, t_jm1, encoder_hidden_states=text_embeddings).sample
-                x_theta = self.scheduler.step(temp, t_jm1, input).prev_sample
+                x_theta = self.scheduler.step(temp, t_jm1, input).prev_sample.detach()
                 x_t_pred = sigma_tj/sigma_tjm1*input - alpha_tj*phi_1*x_theta
 
                 loss = loss_function(x_t_pred, x_t)
