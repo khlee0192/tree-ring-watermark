@@ -137,7 +137,6 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
 
         for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
-            #print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
             if prompt_to_prompt:
                 if i < use_old_emb_i:
                     text_embeddings = old_text_embeddings
@@ -270,12 +269,12 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                 # Algorithm 1
                 if inv_order == 1:
-                    print(f"{latents.mean().item()}, {latents.std().item()}")
+                    #print(f"{latents.mean().item()}, {latents.std().item()}")
                     inverse_opt = True
                     with torch.no_grad():
                         if (i + 2 < len(timesteps_tensor)):
-                            s = timesteps_tensor[i + 1]
-                            r = timesteps_tensor[i + 2]
+                            s = timesteps_tensor[i]
+                            r = timesteps_tensor[i+1]
                             
                             lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[r]
                             sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[r]
@@ -287,7 +286,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                             x_t = latents
 
-                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * x_theta
+                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_s * phi_1 * x_theta
 
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
@@ -297,19 +296,20 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                         elif (i + 2 == len(timesteps_tensor)):
                             # some calculation issue
-                            s = timesteps_tensor[i + 1]
+                            s = timesteps_tensor[i]
+                            r = timesteps_tensor[i+1]
 
-                            lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-                            sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                            lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[r]
+                            sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[r]
                             h = lambda_t - lambda_s
-                            alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                            alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[r]
                             phi_1 = torch.expm1(-h)
                             model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
                             x_theta = self.scheduler.step(model_s, s, latents).prev_sample
 
                             x_t = latents
 
-                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * x_theta
+                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_s * phi_1 * x_theta
 
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
