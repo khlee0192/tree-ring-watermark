@@ -205,6 +205,16 @@ def main(args):
         else:    
             image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
+        # forward_diffusion -> inversion
+        reversed_latents_no_w = pipe.forward_diffusion(
+            latents=image_latents_no_w,
+            text_embeddings=text_embeddings,
+            guidance_scale=1,
+            num_inference_steps=args.test_num_inference_steps,
+            inverse_opt=not args.inv_naive,
+            inv_order=args.inv_order
+        )
+
         noise_latents_no_w = pipe.backward_diffusion(
             latents=image_latents_no_w,
             text_embeddings=text_embeddings,
@@ -215,16 +225,6 @@ def main(args):
             reverse_process=True
         )
 
-        # forward_diffusion -> inversion
-        reversed_latents_no_w = pipe.forward_diffusion(
-            latents=image_latents_no_w,
-            text_embeddings=text_embeddings,
-            guidance_scale=1,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order
-        )
-            
         reversed_image_no_w = to_pil_image(((pipe.decode_image(reversed_latents_no_w)/2+0.5).clamp(0,1))[0])
 
         # reverse img with watermarking

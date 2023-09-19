@@ -160,7 +160,8 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 2 :
+        print(f"{ind+1}/100 iteration")
+        if ind == 100 :
              break
         
         seed = i + args.gen_seed
@@ -195,7 +196,16 @@ def main(args):
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
 
-        # forward_diffusion -> inversion
+        #forward_diffusion -> inversion
+        # reversed_latents = pipe.backward_diffusion(
+        #     latents=image_latents,
+        #     text_embeddings=text_embeddings,
+        #     guidance_scale=1,
+        #     num_inference_steps=args.test_num_inference_steps,
+        #     inverse_opt=not args.inv_naive,
+        #     inv_order=args.inv_order,
+        #     reverse_process=True,
+        # )
         reversed_latents = pipe.forward_diffusion(
             latents=image_latents,
             text_embeddings=text_embeddings,
@@ -248,7 +258,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=7.5, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
-    parser.add_argument('--test_num_inference_steps', default=None, type=int)
+    parser.add_argument('--test_num_inference_steps', default=50, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
     parser.add_argument('--max_num_log_image', default=100, type=int)
@@ -280,6 +290,7 @@ if __name__ == '__main__':
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
     parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
+    parser.add_argument("--baseline", default=False, type=str)
 
     args = parser.parse_args()
 
