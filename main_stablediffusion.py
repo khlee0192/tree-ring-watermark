@@ -161,7 +161,7 @@ def main(args):
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         print(f"{ind+1}/100 iteration")
-        if ind == 100 :
+        if ind == 2:
              break
         
         seed = i + args.gen_seed
@@ -196,7 +196,7 @@ def main(args):
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
 
-        #forward_diffusion -> inversion
+        ##forward_diffusion -> inversion
         # reversed_latents = pipe.backward_diffusion(
         #     latents=image_latents,
         #     text_embeddings=text_embeddings,
@@ -289,7 +289,7 @@ if __name__ == '__main__':
     parser.add_argument("--edcorrector", action="store_true", default=False)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
-    parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
+    parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
     parser.add_argument("--baseline", default=False, type=str)
 
     args = parser.parse_args()
