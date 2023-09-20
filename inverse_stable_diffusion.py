@@ -20,7 +20,6 @@ from modified_stable_diffusion import ModifiedStableDiffusionPipeline
 
 def backward_ddim(x_t, alpha_t, alpha_tm1, eps_xt):
     """ from noise to image"""
-    print(f"coefficients of backward_ddim : {alpha_tm1**0.5 * alpha_t**-0.5}, {alpha_tm1**0.5 * ((1 / alpha_tm1 - 1) ** 0.5 - (1 / alpha_t - 1) ** 0.5)}")
     return (
         alpha_tm1**0.5
         * (
@@ -313,15 +312,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             if inv_order is None:
                 inv_order = self.scheduler.solver_order
-    
-    
-            if (reverse_process):
-                timesteps_tensor = reversed(timesteps_tensor)
 
-            
-            print(f"At begin : {latents.mean().item()}, {latents.std().item()}")
+            print(f"Latent at begin, mean : {latents.mean().item()}, std : {latents.std().item()}")
 
-            for i, t in enumerate(self.progress_bar(timesteps_tensor)):
+            for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
                 if prompt_to_prompt:
                     if i < use_old_emb_i:
                         text_embeddings = old_text_embeddings
@@ -355,9 +349,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 if callback is not None and i % callback_steps == 0:
                     callback(i, t, latents)
                 
-                # Our Algorithm, latents is x0 at algorithm 2
-                x_t = latents
-
+                # To compare coefficients
                 alpha_prod_t = self.scheduler.alphas_cumprod[t]
                 alpha_prod_t_prev = (
                     self.scheduler.alphas_cumprod[prev_timestep]
@@ -365,17 +357,30 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     else self.scheduler.final_alpha_cumprod
                 )
 
+                sigma_t = self.scheduler.sigma_t[t]
+                sigma_t_prev = (
+                    self.scheduler.sigma_t[prev_timestep]
+                    if prev_timestep >= 0
+                    else self.scheduler.final_sigma_t
+                )
+                lambda_t = self.scheduler.lambda_t[t]
+                lambda_t_prev = (
+                    self.scheduler.lambda_t[prev_timestep]
+                    if prev_timestep >= 0
+                    else self.scheduler.final_lambda_t
+                )
+                alpha_t = self.scheduler.alpha_t[t]
+                alpha_t_prev = (
+                    self.scheduler.alpha_t[prev_timestep]
+                    if prev_timestep >= 0
+                    else self.scheduler.final_alpha_t
+                )
+
                 if reverse_process:
                     alpha_prod_t, alpha_prod_t_prev = alpha_prod_t_prev, alpha_prod_t
-
-                # To compare coefficients
-                latents_test = backward_ddim(
-                    x_t=latents,
-                    alpha_t=alpha_prod_t,
-                    alpha_tm1=alpha_prod_t_prev,
-                    eps_xt=noise_pred,
-                )
-                ## test ends
+                    sigma_t, sigma_t_prev = sigma_t_prev, sigma_t
+                    lambda_t, lambda_t_prev = lambda_t_prev, lambda_t
+                    alpha_t, alpha_t_prev = alpha_t_prev, alpha_t
 
 
                 """ # Naive Euler method with differential correction
@@ -391,71 +396,79 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 torch.set_grad_enabled(False)
                 """
                 ''
+
+                with torch.no_grad():
+                    h = lambda_t - lambda_t_prev
+                    phi_1 = torch.expm1(-h)
+                    model_s = self.unet(latent_model_input, prev_timestep, encoder_hidden_states=text_embeddings).sample
+                    model_s = self.scheduler.dpm_solver_first_order_update(model_s, t, prev_timestep, latents)
+
+                    x_t = latents
+                    
+                    latents  = sigma_t_prev / sigma_t * latents + sigma_t_prev / sigma_t * alpha_t * phi_1 * model_s
+
+                    if (inverse_opt):
+                        torch.set_grad_enabled(True)
+                        latents = self.differential_correction_order_one(latents, x_t, sigma_t_prev, sigma_t, alpha_t, phi_1, t, prev_timestep, order=inv_order, text_embeddings=text_embeddings)
+                        torch.set_grad_enabled(False)
+                    
+                    print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
+
+                """
                 # Algorithm 1
                 if inv_order == 1:
                     with torch.no_grad():
                         if (i + 2 < len(timesteps_tensor)):
-                            # # why...
-                            # s = t
-                            # r = prev_timestep
-                            
-                            s = timesteps_tensor[i+1]
-                            r = timesteps_tensor[i]
 
-                            ## Trial
-                            # alpha_cumprod_s, alpha_cumprod_t = self.scheduler.alphas_cumprod[s], self.scheduler.alphas_cumprod[r]
-                            # sigma_s, sigma_t = torch.sqrt(1-alpha_cumprod_s), torch.sqrt(1-alpha_cumprod_t)
-                            # alpha_s, alpha_t = torch.sqrt(alpha_cumprod_s), torch.sqrt(alpha_cumprod_t)
-                            # lambda_s, lambda_t = torch.log10(alpha_s)-torch.log10(sigma_s), torch.log10(alpha_t)-torch.log10(sigma_t), 
-                            
-                            ## Original
+                            # variables
                             reversed_lambda = reversed(self.scheduler.lambda_t)
                             reversed_sigma = reversed(self.scheduler.sigma_t)
                             reversed_alpha = reversed(self.scheduler.alpha_t)
 
+
+                            # # Without reverse
+                            # reversed_lambda = self.scheduler.lambda_t
+                            # reversed_sigma = self.scheduler.sigma_t
+                            # reversed_alpha = self.scheduler.alpha_t
+
                             lambda_s, lambda_t = reversed_lambda[s], reversed_lambda[r]
                             sigma_s, sigma_t = reversed_sigma[s], reversed_sigma[r]
-                            alpha_s, alpha_t = reversed_sigma[s],reversed_sigma[r]
+                            alpha_s, alpha_t = reversed_alpha[s],reversed_alpha[r]
                             h = lambda_t - lambda_s
                             
                             phi_1 = torch.expm1(-h)
                             
-                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            model_s = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
 
                             x_t = latents
-
-                            print(f"Coefficients check : {sigma_s/sigma_t}, {sigma_s / sigma_t * alpha_s * phi_1}")
-
-                            # sigma_s > sigma_t, phi_1 small and stedy with negative value
-                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_s * phi_1 * model_s
-                            print(f"After step {i} time {t} : {latents.mean().item()}, {latents.std().item()}")
+                            
+                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s
 
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
-                                # correction must be .. corrected 
-                                latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_t, phi_1, tim1=s, order=inv_order, text_embeddings=text_embeddings)
+                                latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_t, phi_1, tim1=t, order=inv_order, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
-                                #print(f"\twith correction on step {i} time {t} : {latents.mean().item()}, {latents.std().item()}")
-
+                            
+                            print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
 
                         elif (i + 2 == len(timesteps_tensor)):
-                            s = timesteps_tensor[i+1]
-                            r = timesteps_tensor[i]
+                            break
+                            s = prev_timestep
+                            r = t
 
-                            ## Trial
-                            # alpha_cumprod_s, alpha_cumprod_t = self.scheduler.alphas_cumprod[s], self.scheduler.alphas_cumprod[r]
-                            # sigma_s, sigma_t = torch.sqrt(1-alpha_cumprod_s), torch.sqrt(1-alpha_cumprod_t)
-                            # alpha_s, alpha_t = torch.sqrt(alpha_cumprod_s), torch.sqrt(alpha_cumprod_t)
-                            # lambda_s, lambda_t = torch.log10(alpha_s)-torch.log10(sigma_s), torch.log10(alpha_t)-torch.log10(sigma_t)
-                            
-                            ## Original
-                            reversed_lambda = reversed(self.scheduler.lambda_t)
-                            reversed_sigma = reversed(self.scheduler.sigma_t)
-                            reversed_alpha = reversed(self.scheduler.alpha_t)
+                            # # Variables
+                            # reversed_lambda = reversed(self.scheduler.lambda_t)
+                            # reversed_sigma = reversed(self.scheduler.sigma_t)
+                            # reversed_alpha = reversed(self.scheduler.alpha_t)
+
+                            # Without reverse
+                            reversed_lambda = self.scheduler.lambda_t
+                            reversed_sigma = self.scheduler.sigma_t
+                            reversed_alpha = self.scheduler.alpha_t
 
                             lambda_s, lambda_t = reversed_lambda[s], reversed_lambda[r]
                             sigma_s, sigma_t = reversed_sigma[s], reversed_sigma[r]
-                            alpha_s, alpha_t = reversed_sigma[s],reversed_sigma[r]
+                            alpha_s, alpha_t = reversed_alpha[s],reversed_alpha[r]
                             h = lambda_t - lambda_s
                             
                             phi_1 = torch.expm1(-h)
@@ -464,21 +477,16 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                             x_t = latents
 
-                            print(f"Coefficients check : {sigma_s/sigma_t}, {sigma_s / sigma_t * alpha_t * phi_1}")
-
-                            # sigma_s > sigma_t, phi_1 small and stedy with negative value
-                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_s * phi_1 * model_s
-                            print(f"After step {i} time {t} : {latents.mean().item()}, {latents.std().item()}")
+                            latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s
 
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
-                                # correction must be .. corrected 
                                 latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_s, phi_1, tim1=s, order=inv_order, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
-                                #print(f"\twith correction on step {i} time {t} : {latents.mean().item()}, {latents.std().item()}")
+                """
 
                 # Algorithm 2
-                elif inv_order == 2:
+                if inv_order == 2:
                     with torch.no_grad():
                         if (i + 2 < len(timesteps_tensor)):
                             x_tM = latents.clone() # line 3
@@ -600,9 +608,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     def differential_correction_order_one(self, 
                                 x, target, 
-                                sigma_s, sigma_t, alpha_s, phi_1, tim1,
+                                sigma_t_prev, sigma_t, alpha_t, phi_1, t, prev_timestep,
                                 order=1, n_iter=100, lr=0.1, th=1e-6, 
                                 text_embeddings=None):
+        
         import copy
         model = copy.deepcopy(self.unet)
         input = x.clone() # the output
@@ -614,15 +623,18 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         optimizer = torch.optim.SGD([input], lr=lr)
 
         for i in range(n_iter):
-            temp = model(input, tim1, encoder_hidden_states=text_embeddings).sample.detach()
-            x_t_pred = sigma_t / sigma_s * input - alpha_s * phi_1 * temp
+            input_clone = input.clone().detach()
+            temp = model(input, t, encoder_hidden_states=text_embeddings).sample.detach()
+            temp = self.scheduler.dpm_solver_first_order_update(temp, t, prev_timestep, input_clone)
+            x_t_pred = sigma_t / sigma_t_prev * input - alpha_t * phi_1 * temp
             loss = loss_function(x_t_pred, x_t)
-            #print(f"Iteration {i}, Loss: {loss.item():.6f}")
+            print(f"Iteration {i}, Loss: {loss.item():.6f}")
             if loss.item() < th:
                 break             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        input.detach()
         return input
 
     @torch.inference_mode
@@ -806,7 +818,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         return latents
 
-    def  differential_correction(self, x, target, t_s, t_r, r=None, order=1, n_iter=100, lr=0.1, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
+    def differential_correction(self, x, target, t_s, t_r, r=None, order=1, n_iter=100, lr=0.1, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
         #xtim1, xt, sig_im1, sig_i
         if order==1:
             import copy

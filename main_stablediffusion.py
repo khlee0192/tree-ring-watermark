@@ -10,7 +10,7 @@ import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 import torchvision.transforms as transforms
 
-from inverse_stable_diffusion import InversableStableDiffusionPipeline 
+from inverse_stable_diffusion import InversableStableDiffusionPipeline
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
@@ -158,11 +158,12 @@ def main(args):
     x_T_third = []
     x_0_fourth = []
 
+    test = 2
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        print(f"{ind+1}/100 iteration")
-        if ind == 2:
+        if ind == test:
              break
+        print(f"{ind+1}/{test} iteration")
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
