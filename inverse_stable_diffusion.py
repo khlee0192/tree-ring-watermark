@@ -401,11 +401,16 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     h = lambda_t - lambda_t_prev
                     phi_1 = torch.expm1(-h)
                     model_s = self.unet(latent_model_input, prev_timestep, encoder_hidden_states=text_embeddings).sample
-                    model_s = self.scheduler.dpm_solver_first_order_update(model_s, t, prev_timestep, latents)
 
                     x_t = latents
                     
-                    latents  = sigma_t_prev / sigma_t * latents + sigma_t_prev / sigma_t * alpha_t * phi_1 * model_s
+                    #latents  = sigma_t_prev / sigma_t * latents + sigma_t_prev / sigma_t * alpha_t * phi_1 * model_s
+                    latents = self.scheduler.dpm_solver_first_order_update(
+                        latents,
+                        prev_timestep,
+                        t,
+                        model_s,
+                    )
 
                     if (inverse_opt):
                         torch.set_grad_enabled(True)
@@ -625,8 +630,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         for i in range(n_iter):
             input_clone = input.clone().detach()
             temp = model(input, t, encoder_hidden_states=text_embeddings).sample.detach()
-            temp = self.scheduler.dpm_solver_first_order_update(temp, t, prev_timestep, input_clone)
-            x_t_pred = sigma_t / sigma_t_prev * input - alpha_t * phi_1 * temp
+            x_t_pred = self.scheduler.dpm_solver_first_order_update(
+                        input,
+                        t,
+                        prev_timestep,
+                        temp,
+            )
+            #x_t_pred = sigma_t / sigma_t_prev * input - alpha_t * phi_1 * temp
             loss = loss_function(x_t_pred, x_t)
             print(f"Iteration {i}, Loss: {loss.item():.6f}")
             if loss.item() < th:
