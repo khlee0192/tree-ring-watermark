@@ -315,6 +315,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             print(f"Latent at begin, mean : {latents.mean().item()}, std : {latents.std().item()}")
 
+            #timesteps_tensor = reversed(timesteps_tensor) # TODO : strange
+
             for i, t in enumerate(self.progress_bar(timesteps_tensor if not reverse_process else reversed(timesteps_tensor))):
                 if prompt_to_prompt:
                     if i < use_old_emb_i:
@@ -396,7 +398,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 torch.set_grad_enabled(False)
                 """
                 ''
-
+                """
                 with torch.no_grad():
                     h = lambda_t - lambda_t_prev
                     phi_1 = torch.expm1(-h)
@@ -424,12 +426,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 if inv_order == 1:
                     with torch.no_grad():
                         if (i + 2 < len(timesteps_tensor)):
+                            s = timesteps_tensor[i+1]
+                            r = timesteps_tensor[i+2]
 
                             # variables
                             reversed_lambda = reversed(self.scheduler.lambda_t)
                             reversed_sigma = reversed(self.scheduler.sigma_t)
                             reversed_alpha = reversed(self.scheduler.alpha_t)
-
 
                             # # Without reverse
                             # reversed_lambda = self.scheduler.lambda_t
@@ -448,10 +451,11 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             x_t = latents
                             
                             latents  = sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s
+                            #print(f"coefficients : {sigma_s/sigma_t}, {sigma_s/sigma_t*alpha_t*phi_1}")
 
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
-                                latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_t, phi_1, tim1=t, order=inv_order, text_embeddings=text_embeddings)
+                                latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_t, phi_1, t, order=inv_order, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
                             
                             print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
@@ -488,7 +492,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 torch.set_grad_enabled(True)
                                 latents = self.differential_correction_order_one(latents, x_t, sigma_s, sigma_t, alpha_s, phi_1, tim1=s, order=inv_order, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
-                """
+                
 
                 # Algorithm 2
                 if inv_order == 2:
@@ -613,8 +617,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
     def differential_correction_order_one(self, 
                                 x, target, 
-                                sigma_t_prev, sigma_t, alpha_t, phi_1, t, prev_timestep,
-                                order=1, n_iter=100, lr=0.1, th=1e-6, 
+                                sigma_t_prev, sigma_t, alpha_t, phi_1, t, prev_timestep=None,
+                                order=1, n_iter=500, lr=0.1, th=1e-6, 
                                 text_embeddings=None):
         
         import copy
@@ -628,17 +632,12 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         optimizer = torch.optim.SGD([input], lr=lr)
 
         for i in range(n_iter):
-            input_clone = input.clone().detach()
+            #input_clone = input.clone().detach()
             temp = model(input, t, encoder_hidden_states=text_embeddings).sample.detach()
-            x_t_pred = self.scheduler.dpm_solver_first_order_update(
-                        input,
-                        t,
-                        prev_timestep,
-                        temp,
-            )
-            #x_t_pred = sigma_t / sigma_t_prev * input - alpha_t * phi_1 * temp
+            #x_t_pred = self.scheduler.dpm_solver_first_order_update(input,t,prev_timestep,temp,)
+            x_t_pred = sigma_t / sigma_t_prev * input - alpha_t * phi_1 * temp
             loss = loss_function(x_t_pred, x_t)
-            print(f"Iteration {i}, Loss: {loss.item():.6f}")
+            #print(f"Iteration {i}, Loss: {loss.item():.6f}")
             if loss.item() < th:
                 break             
             optimizer.zero_grad()

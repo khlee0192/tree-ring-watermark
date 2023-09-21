@@ -255,7 +255,7 @@ if __name__ == '__main__':
     parser.add_argument('--end', default=10, type=int)
     parser.add_argument('--image_length', default=512, type=int)
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
-    parser.add_argument('--with_tracking', action='store_true')
+    parser.add_argument('--with_tracking', action='store_true', default=True)
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=7.5, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
