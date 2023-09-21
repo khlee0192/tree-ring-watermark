@@ -384,8 +384,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     lambda_t, lambda_t_prev = lambda_t_prev, lambda_t
                     alpha_t, alpha_t_prev = alpha_t_prev, alpha_t
 
+                x_t = latents
 
-                """ # Naive Euler method with differential correction
+                # Naive Euler method with differential correction
                 latents = backward_ddim(
                     x_t=latents,
                     alpha_t=alpha_prod_t,
@@ -396,8 +397,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 #latents = self.differential_correction(latents, x_t, prev_timestep, t, order=inv_order, text_embeddings=text_embeddings).detach()
                 latents = self.differential_correction_ac(latents, x_t, alpha_prod_t, alpha_prod_t_prev, t, order=inv_order, text_embeddings=text_embeddings).detach()
                 torch.set_grad_enabled(False)
-                """
-                ''
+                
                 """
                 with torch.no_grad():
                     h = lambda_t - lambda_t_prev
@@ -420,10 +420,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                         torch.set_grad_enabled(False)
                     
                     print(f"mean : {latents.mean().item()}, std : {latents.std().item()}")
-
                 """
+
                 # Algorithm 1
-                if inv_order == 1:
+                if inv_order == 0:
                     with torch.no_grad():
                         if (i + 2 < len(timesteps_tensor)):
                             s = timesteps_tensor[i+1]
@@ -618,7 +618,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
     def differential_correction_order_one(self, 
                                 x, target, 
                                 sigma_t_prev, sigma_t, alpha_t, phi_1, t, prev_timestep=None,
-                                order=1, n_iter=500, lr=0.1, th=1e-6, 
+                                order=1, n_iter=100, lr=0.1, th=1e-6, 
                                 text_embeddings=None):
         
         import copy
