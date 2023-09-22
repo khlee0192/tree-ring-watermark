@@ -10,7 +10,7 @@ import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 import torchvision.transforms as transforms
 
-from inverse_stable_diffusion import InversableStableDiffusionPipeline 
+from inverse_stable_diffusion import InversableStableDiffusionPipeline
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
@@ -83,15 +83,6 @@ def evaluate(t1,t2,t3,t4):
     for i in range(len(t1)):
         recon_err_T0T.append( (((t1[i]-t3[i]).norm()/(t1[i].norm())).item())**2 )
         recon_err_0T0.append( (((t2[i]-t4[i]).norm()/(t2[i].norm())).item())**2 )
-
-
-
-    if(len(t1)==1):
-        print("T0T:", recon_err_T0T[0])
-        print("0T0:", recon_err_0T0[0])
-        return recon_err_T0T[0], 0, recon_err_0T0[0], 0
-    
-
     import statistics
     data_T0T = recon_err_T0T
     mean_T0T = statistics.mean(data_T0T)
@@ -114,10 +105,12 @@ def evaluate(t1,t2,t3,t4):
 
 def main(args):
     table = None
+    args.with_tracking = True
     if args.with_tracking:
+        print("wandb initialized")
         wandb.init(project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
         wandb.config.update(args)
-        table = wandb.Table(columns=['image', 'reversed_latent', 'recon_image','n2n_error','i2i_error', 'prompt'])
+        table = wandb.Table(columns=['image', 'recon_latent', 'recon_image' 'prompt'])
     
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -129,7 +122,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        steps_offset = 1, #CHECK
+        #steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -165,10 +158,12 @@ def main(args):
     x_T_third = []
     x_0_fourth = []
 
+    test = 2
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 1 :
+        if ind == test:
              break
+        print(f"{ind+1}/{test} iteration")
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
@@ -177,15 +172,11 @@ def main(args):
             text_embeddings = pipe.get_text_embedding(current_prompt)
 
         ### generation
-
-        # generate init latent
+        # generation without watermarking
         set_random_seed(seed)
         init_latents = pipe.get_random_latents()
-
-        #init_latents_to_img = to_pil_image(((pipe.decode_image(init_latents)/2+0.5).clamp(0,1))[0])
         x_T_first.append(init_latents.clone())
 
-        # generate image
         outputs = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
@@ -199,9 +190,6 @@ def main(args):
         x_0_second.append(transforms.ToTensor()(orig_image).to(torch.float16))
         
         
-        ### Inversion
-
-        # image to latent
         img = transform_img(orig_image).unsqueeze(0).to(text_embeddings.dtype).to(device)
         
         if args.edcorrector:
@@ -209,7 +197,16 @@ def main(args):
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
 
-        # forward_diffusion
+        ##forward_diffusion -> inversion
+        # reversed_latents = pipe.backward_diffusion(
+        #     latents=image_latents,
+        #     text_embeddings=text_embeddings,
+        #     guidance_scale=1,
+        #     num_inference_steps=args.test_num_inference_steps,
+        #     inverse_opt=not args.inv_naive,
+        #     inv_order=args.inv_order,
+        #     reverse_process=True,
+        # )
         reversed_latents = pipe.forward_diffusion(
             latents=image_latents,
             text_embeddings=text_embeddings,
@@ -219,11 +216,10 @@ def main(args):
             inv_order=args.inv_order
         )
 
-        reversed_latents_to_img = to_pil_image(((pipe.decode_image(reversed_latents)/2+0.5).clamp(0,1))[0])
         x_T_third.append(reversed_latents.clone())
             
+        #reversed_image_no_w = to_pil_image(((pipe.decode_image(reversed_latents)/2+0.5).clamp(0,1))[0])
 
-        ### Reconstrution
         reconstructed_outputs = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
@@ -233,17 +229,14 @@ def main(args):
             width=args.image_length,
             latents=reversed_latents,
             )
-        reconstructed_image = reconstructed_outputs.images[0]
-        x_0_fourth.append(transforms.ToTensor()(reconstructed_image).to(torch.float16))
+        reconstruted_image = reconstructed_outputs.images[0]
+        x_0_fourth.append(transforms.ToTensor()(reconstruted_image).to(torch.float16))
 
-        n2n_error,_, i2i_error,_ = evaluate([x_T_first[-1]],[x_0_second[-1]],[x_T_third[-1]],[x_0_fourth[-1]])
         
         if args.with_tracking:
-            table.add_data(wandb.Image(orig_image),wandb.Image(reversed_latents_to_img), wandb.Image(reconstructed_image),n2n_error, i2i_error,current_prompt)
+            table.add_data(wandb.Image(orig_image),wandb.Image(reconstruted_image), current_prompt)
         
         ind = ind + 1
-
-    
 
 
     mean_T0T, std_T0T, mean_0T0, std_0T0 = evaluate(x_T_first,x_0_second,x_T_third,x_0_fourth)
@@ -262,49 +255,52 @@ if __name__ == '__main__':
     parser.add_argument('--end', default=10, type=int)
     parser.add_argument('--image_length', default=512, type=int)
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
-    parser.add_argument('--with_tracking', action='store_true')
+    parser.add_argument('--with_tracking', action='store_true', default=True)
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=7.5, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
-    parser.add_argument('--test_num_inference_steps', default=None, type=int)
+    parser.add_argument('--test_num_inference_steps', default=50, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
     parser.add_argument('--max_num_log_image', default=100, type=int)
     parser.add_argument('--gen_seed', default=0, type=int)
 
-    # # watermark
-    # parser.add_argument('--w_seed', default=999999, type=int)
-    # parser.add_argument('--w_channel', default=0, type=int)
-    # parser.add_argument('--w_pattern', default='rand')
-    # parser.add_argument('--w_mask_shape', default='circle')
-    # parser.add_argument('--w_radius', default=10, type=int)
-    # parser.add_argument('--w_measurement', default='l1_complex')
-    # parser.add_argument('--w_injection', default='complex')
-    # parser.add_argument('--w_pattern_const', default=0, type=float)
+    # watermark
+    parser.add_argument('--w_seed', default=999999, type=int)
+    parser.add_argument('--w_channel', default=0, type=int)
+    parser.add_argument('--w_pattern', default='rand')
+    parser.add_argument('--w_mask_shape', default='circle')
+    parser.add_argument('--w_radius', default=10, type=int)
+    parser.add_argument('--w_measurement', default='l1_complex')
+    parser.add_argument('--w_injection', default='complex')
+    parser.add_argument('--w_pattern_const', default=0, type=float)
     
-    # # for image distortion
-    # parser.add_argument('--r_degree', default=None, type=float)
-    # parser.add_argument('--jpeg_ratio', default=None, type=int)
-    # parser.add_argument('--crop_scale', default=None, type=float)
-    # parser.add_argument('--crop_ratio', default=None, type=float)
-    # parser.add_argument('--gaussian_blur_r', default=None, type=int)
-    # parser.add_argument('--gaussian_std', default=None, type=float)
-    # parser.add_argument('--brightness_factor', default=None, type=float)
-    # parser.add_argument('--rand_aug', default=0, type=int)
+    # for image distortion
+    parser.add_argument('--r_degree', default=None, type=float)
+    parser.add_argument('--jpeg_ratio', default=None, type=int)
+    parser.add_argument('--crop_scale', default=None, type=float)
+    parser.add_argument('--crop_ratio', default=None, type=float)
+    parser.add_argument('--gaussian_blur_r', default=None, type=int)
+    parser.add_argument('--gaussian_std', default=None, type=float)
+    parser.add_argument('--brightness_factor', default=None, type=float)
+    parser.add_argument('--rand_aug', default=0, type=int)
     
     # experiment
     parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM') 
     parser.add_argument("--edcorrector", action="store_true", default=False)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
-    parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
+    parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
+    parser.add_argument("--baseline", default=False, type=str)
 
     args = parser.parse_args()
 
     if args.test_num_inference_steps is None:
         args.test_num_inference_steps = args.num_inference_steps
-    
     if args.inv_order is None:
+        if args.inv_naive:
+            args.inv_order = 1
+        else:
             args.inv_order = args.solver_order
-
+    
     main(args)
