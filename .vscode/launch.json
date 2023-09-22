@@ -17,8 +17,8 @@
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
                 "--with_tracking",
                 //watermark
-                "--w_channel", "3",
-                "--w_pattern", "ring",
+                // "--w_channel", "3",
+                // "--w_pattern", "ring",
                 //distortion
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",

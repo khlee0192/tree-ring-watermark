@@ -204,7 +204,7 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
         if not return_dict:
             return (image, has_nsfw_concept)
 
-        return ModifiedStableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept, init_latents=init_latents)
+        return ModifiedStableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept, init_latents=init_latents), latents
 
 
     @torch.inference_mode()

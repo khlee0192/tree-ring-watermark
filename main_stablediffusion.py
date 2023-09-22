@@ -129,7 +129,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        steps_offset = 1, #CHECK
+        #steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -167,7 +167,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 1 :
+        if ind == 2 :
              break
         
         seed = i + args.gen_seed
@@ -186,7 +186,7 @@ def main(args):
         x_T_first.append(init_latents.clone())
 
         # generate image
-        outputs = pipe(
+        outputs, real_latents = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -203,12 +203,13 @@ def main(args):
 
         # image to latent
         img = transform_img(orig_image).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        
+        """
         if args.edcorrector:
             image_latents = pipe.edcorrector(img)
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
-
+        """
+        image_latents = real_latents # test on answer latents
         # forward_diffusion
         reversed_latents = pipe.forward_diffusion(
             latents=image_latents,
@@ -224,7 +225,7 @@ def main(args):
             
 
         ### Reconstrution
-        reconstructed_outputs = pipe(
+        reconstructed_outputs, temp_latetns = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -264,7 +265,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
-    parser.add_argument('--guidance_scale', default=7.5, type=float)
+    parser.add_argument('--guidance_scale', default=1.0, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
     parser.add_argument('--test_num_inference_steps', default=None, type=int)
     parser.add_argument('--reference_model', default=None)
@@ -294,10 +295,10 @@ if __name__ == '__main__':
     
     # experiment
     parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM') 
-    parser.add_argument("--edcorrector", action="store_true", default=False)
+    parser.add_argument("--edcorrector", action="store_true", default=True)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
-    parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
+    parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
 
     args = parser.parse_args()
 
