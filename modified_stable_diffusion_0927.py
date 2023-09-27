@@ -157,6 +157,13 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+        
+        # # Only this line -> works
+        # self.unet = self.unet.half()
+
+        self.unet = self.unet.float()
+        latents = latents.float()
+        text_embeddings = text_embeddings.float()
 
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -180,6 +187,7 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
+                # 이 과정은 noise에서 image를 만들때 가는 것이고 order도 1, 2, 3을 바꿀 수 있다. 이건 꽤 정밀하게 가는걸로 바꿀 수 있음
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
 
                 # call the callback, if provided
@@ -190,7 +198,6 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
 
         # 8. Post-processing
         image = self.decode_latents(latents)
-        #image = self.decode_latents(latents.half())
 
         # 9. Run safety checker
         image, has_nsfw_concept = self.run_safety_checker(image, device, text_embeddings.dtype)
@@ -210,7 +217,7 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
-        #self.vae = self.vae.float()
+        self.vae = self.vae.float()
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
         ]

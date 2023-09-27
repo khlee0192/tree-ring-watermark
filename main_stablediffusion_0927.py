@@ -115,10 +115,9 @@ def evaluate(t1,t2,t3,t4):
 def main(args):
     table = None
     if args.with_tracking:
-        #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
-        wandb.init(entity='euniejeon', project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
+        wandb.init(project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
         wandb.config.update(args)
-        table = wandb.Table(columns=['image','recon_image','n2n_error','i2i_error', 'prompt'])
+        table = wandb.Table(columns=['image', 'reversed_latent', 'recon_image','n2n_error','i2i_error', 'prompt'])
     
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -130,7 +129,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        steps_offset = 1, #CHECK
+        #steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -149,7 +148,7 @@ def main(args):
         args.model_id,
         scheduler=scheduler,
         torch_dtype=torch.float32,
-        #revision='fp16',
+        revision='fp16',
         )
     pipe = pipe.to(device)
 
@@ -165,9 +164,6 @@ def main(args):
     x_0_second = []
     x_T_third = []
     x_0_fourth = []
-
-    x_0_second_latents = []
-    x_0_fourth_latents = []
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
@@ -190,7 +186,7 @@ def main(args):
         x_T_first.append(init_latents.clone())
 
         # generate image
-        outputs, orig_latents = pipe(
+        outputs, real_latents = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -200,9 +196,8 @@ def main(args):
             latents=init_latents,
             )
         orig_image = outputs.images[0]
-        
         x_0_second.append(transforms.ToTensor()(orig_image).to(torch.float32))
-        x_0_second_latents.append(orig_latents.clone())
+        #x_0_second.append(real_latents.to(torch.float16))
         
         ### Inversion
 
@@ -213,24 +208,37 @@ def main(args):
             image_latents = pipe.edcorrector(img)
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
-
-        # forward_diffusion
-        reversed_latents = pipe.forward_diffusion(
-            latents=image_latents if not args.answer else orig_latents, 
-            text_embeddings=text_embeddings,
-            guidance_scale=1.0,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order
-        )
-
-        #reversed_latents_to_img = to_pil_image(((pipe.decode_image(reversed_latents)/2+0.5).clamp(0,1))[0])
+        ## if testing only on ddim
+        #image_latents = real_latents # test on answer latents
         
+        # forward_diffusion
+        if args.exact_inversion:
+            reversed_latents = pipe.forward_diffusion(
+                latents=image_latents,
+                text_embeddings=text_embeddings,
+                guidance_scale=1,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order
+            )
+        else:
+            reversed_latents = pipe.backward_diffusion(
+                latents=image_latents,
+                text_embeddings=text_embeddings,
+                guidance_scale=1,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order,
+                reverse_process=True
+            )
+        
+
+        reversed_latents_to_img = to_pil_image(((pipe.decode_image(reversed_latents)/2+0.5).clamp(0,1))[0])
         x_T_third.append(reversed_latents.clone())
             
 
         ### Reconstrution
-        reconstructed_outputs, reconstructed_latents = pipe(
+        reconstructed_outputs, temp_latents = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -240,27 +248,24 @@ def main(args):
             latents=reversed_latents,
             )
         reconstructed_image = reconstructed_outputs.images[0]
-        
         x_0_fourth.append(transforms.ToTensor()(reconstructed_image).to(torch.float32))
-        x_0_fourth_latents.append(reconstructed_latents.clone())
-        
+        #x_0_fourth.append(temp_latents.to(torch.float16))
+
         n2n_error,_, i2i_error,_ = evaluate([x_T_first[-1]],[x_0_second[-1]],[x_T_third[-1]],[x_0_fourth[-1]])
         
-        
         if args.with_tracking:
-            table.add_data(wandb.Image(orig_image),wandb.Image(reconstructed_image),n2n_error,i2i_error,current_prompt)
+            table.add_data(wandb.Image(orig_image),wandb.Image(reversed_latents_to_img), wandb.Image(reconstructed_image),n2n_error, i2i_error,current_prompt)
         
         ind = ind + 1
 
-
+    
 
 
     mean_T0T, std_T0T, mean_0T0, std_0T0 = evaluate(x_T_first,x_0_second,x_T_third,x_0_fourth)
-    mean_T0T, std_T0T, mean_0T0_latent, std_0T0_latent = evaluate(x_T_first, x_0_second_latents, x_T_third, x_0_fourth_latents)
 
     if args.with_tracking:
         wandb.log({'Table': table})
-        wandb.log({'mean_T0T' : mean_T0T,'std_T0T' : std_T0T,'mean_0T0' : mean_0T0,'std_0T0' : std_0T0,})
+        wandb.log({'mean_T0T' : mean_T0T,'std_T0T' : std_T0T,'mean_0T0' : mean_0T0,'std_0T0' : std_0T0})
 
 
 
@@ -275,8 +280,8 @@ if __name__ == '__main__':
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=1.0, type=float)
-    parser.add_argument('--num_inference_steps', default=50, type=int)
-    parser.add_argument('--test_num_inference_steps', default=None, type=int)
+    parser.add_argument('--num_inference_steps', default=10, type=int)
+    parser.add_argument('--test_num_inference_steps', default=10, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
     parser.add_argument('--max_num_log_image', default=100, type=int)
@@ -303,12 +308,12 @@ if __name__ == '__main__':
     # parser.add_argument('--rand_aug', default=0, type=int)
     
     # experiment
-    parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM++') 
-    parser.add_argument("--edcorrector", action="store_true", default=False)
+    parser.add_argument("--exact_inversion", default=True)
+    parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM') 
+    parser.add_argument("--edcorrector", default=True)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
-    parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
-    parser.add_argument("--answer", action='store_true', default=False, help="use answer latent for inversion")
+    parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
 
     args = parser.parse_args()
 
