@@ -25,11 +25,12 @@
 
                 //experiment
                 "--run_name", "wandb",
-                "--solver_order", "1",
-                "--num_inference_steps", "50",
-                //"--edcorrector",
+                //"--solver_order", "2",
+                //"--num_inference_steps", "50",
+                //"--exact_inversion", "True",
+                //"--edcorrector", "False",
                 //"--inv_naive",
-                "--inv_order", "1",
+                //"--inv_order", "2",
                 //"--test_num_inference_steps", "10"
                 //"--prompt_reuse"
 

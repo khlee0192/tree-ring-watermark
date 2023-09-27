@@ -147,7 +147,7 @@ def main(args):
     pipe = InversableStableDiffusionPipeline.from_pretrained(
         args.model_id,
         scheduler=scheduler,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         revision='fp16',
         )
     pipe = pipe.to(device)
@@ -196,36 +196,49 @@ def main(args):
             latents=init_latents,
             )
         orig_image = outputs.images[0]
-        x_0_second.append(transforms.ToTensor()(orig_image).to(torch.float16))
-        
+        x_0_second.append(transforms.ToTensor()(orig_image).to(torch.float32))
+        #x_0_second.append(real_latents.to(torch.float16))
         
         ### Inversion
 
         # image to latent
         img = transform_img(orig_image).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        """
+        
         if args.edcorrector:
             image_latents = pipe.edcorrector(img)
         else:    
             image_latents = pipe.get_image_latents(img, sample=False)
-        """
-        image_latents = real_latents # test on answer latents
+        ## if testing only on ddim
+        #image_latents = real_latents # test on answer latents
+        
         # forward_diffusion
-        reversed_latents = pipe.forward_diffusion(
-            latents=image_latents,
-            text_embeddings=text_embeddings,
-            guidance_scale=1,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order
-        )
+        if args.exact_inversion:
+            reversed_latents = pipe.forward_diffusion(
+                latents=image_latents,
+                text_embeddings=text_embeddings,
+                guidance_scale=1,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order
+            )
+        else:
+            reversed_latents = pipe.backward_diffusion(
+                latents=image_latents,
+                text_embeddings=text_embeddings,
+                guidance_scale=1,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order,
+                reverse_process=True
+            )
+        
 
         reversed_latents_to_img = to_pil_image(((pipe.decode_image(reversed_latents)/2+0.5).clamp(0,1))[0])
         x_T_third.append(reversed_latents.clone())
             
 
         ### Reconstrution
-        reconstructed_outputs, temp_latetns = pipe(
+        reconstructed_outputs, temp_latents = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -235,7 +248,8 @@ def main(args):
             latents=reversed_latents,
             )
         reconstructed_image = reconstructed_outputs.images[0]
-        x_0_fourth.append(transforms.ToTensor()(reconstructed_image).to(torch.float16))
+        x_0_fourth.append(transforms.ToTensor()(reconstructed_image).to(torch.float32))
+        #x_0_fourth.append(temp_latents.to(torch.float16))
 
         n2n_error,_, i2i_error,_ = evaluate([x_T_first[-1]],[x_0_second[-1]],[x_T_third[-1]],[x_0_fourth[-1]])
         
@@ -266,8 +280,8 @@ if __name__ == '__main__':
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=1.0, type=float)
-    parser.add_argument('--num_inference_steps', default=50, type=int)
-    parser.add_argument('--test_num_inference_steps', default=None, type=int)
+    parser.add_argument('--num_inference_steps', default=10, type=int)
+    parser.add_argument('--test_num_inference_steps', default=10, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
     parser.add_argument('--max_num_log_image', default=100, type=int)
@@ -294,8 +308,9 @@ if __name__ == '__main__':
     # parser.add_argument('--rand_aug', default=0, type=int)
     
     # experiment
+    parser.add_argument("--exact_inversion", default=True)
     parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM') 
-    parser.add_argument("--edcorrector", action="store_true", default=True)
+    parser.add_argument("--edcorrector", default=True)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
     parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")

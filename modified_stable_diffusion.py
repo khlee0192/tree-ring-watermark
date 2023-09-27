@@ -157,6 +157,13 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+        
+        # # Only this line -> works
+        # self.unet = self.unet.half()
+
+        self.unet = self.unet.float()
+        latents = latents.float()
+        text_embeddings = text_embeddings.float()
 
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -210,6 +217,7 @@ class ModifiedStableDiffusionPipeline(StableDiffusionPipeline):
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
+        self.vae = self.vae.float()
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
         ]
