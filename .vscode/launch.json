@@ -15,7 +15,7 @@
                 "--end", "1000",
                 "--reference_model", "ViT-g-14",
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
-                "--with_tracking",
+                //"--with_tracking",
                 //watermark
                 // "--w_channel", "3",
                 // "--w_pattern", "ring",
@@ -25,14 +25,14 @@
 
                 //experiment
                 "--run_name", "wandb",
-                //"--solver_order", "2",
-                //"--num_inference_steps", "50",
+                "--solver_order", "2",
+                "--num_inference_steps", "10",
                 //"--exact_inversion", "True",
                 //"--edcorrector", "False",
                 //"--inv_naive",
-                //"--inv_order", "2",
-                //"--test_num_inference_steps", "10"
-                //"--prompt_reuse"
+                "--inv_order", "2",
+                "--test_num_inference_steps", "10",
+                "--prompt_reuse"
 
 
 

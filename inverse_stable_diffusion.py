@@ -382,7 +382,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             x_t = latents
 
                             # naive DDIM inversion
-                            latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s) #DPMsolver++
+                            latents = (sigma_s / sigma_t * x_t + sigma_s / sigma_t * alpha_t * phi_1 * model_s) #DPMsolver++
                             #latents = alpha_s/alpha_t * (latents + sigma_t * torch.expm1(h) * model_s) #DPMsolver   
                             
                             if inverse_opt:
@@ -462,7 +462,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 model_output = model(input, s, encoder_hidden_states=text_embeddings).sample.detach() # estimated noise
                 model_output = self.scheduler.convert_model_output(model_output, s, input).detach() #dpm->dpm++ #CHECK
                 
-                ##x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t, s, input) #DPMsolver++
+                x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t, s, input) #DPMsolver++
                 #x_t_pred = alpha_t/alpha_prev_0 * input - sigma_t * torch.expm1(h) * model_output #DPMsolver
                 x_t_pred = (sigma_t / sigma_prev0) * input - (alpha_t * (torch.exp(-h) - 1.0)) * model_output #DPMsolver++
 

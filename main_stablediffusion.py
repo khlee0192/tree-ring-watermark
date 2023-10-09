@@ -114,9 +114,11 @@ def evaluate(t1,t2,t3,t4):
 
 def main(args):
     table = None
+    args.with_tracking = False
     if args.with_tracking:
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
-        wandb.init(entity='euniejeon', project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
+        wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name, tags=['tree_ring_watermark'])
+        #wandb.init(entity='khlee0192', project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
         wandb.config.update(args)
         table = wandb.Table(columns=['image','recon_image','n2n_error','i2i_error', 'prompt'])
     
@@ -171,7 +173,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 2 :
+        if ind == 1 :
              break
         
         seed = i + args.gen_seed
@@ -255,18 +257,19 @@ def main(args):
 
 
 
-    mean_T0T, std_T0T, mean_0T0, std_0T0 = evaluate(x_T_first,x_0_second,x_T_third,x_0_fourth)
-    mean_T0T, std_T0T, mean_0T0_latent, std_0T0_latent = evaluate(x_T_first, x_0_second_latents, x_T_third, x_0_fourth_latents)
+    #mean_T0T, std_T0T, mean_0T0, std_0T0 = evaluate(x_T_first,x_0_second,x_T_third,x_0_fourth)
+    #mean_T0T, std_T0T, mean_0T0_latent, std_0T0_latent = evaluate(x_T_first, x_0_second_latents, x_T_third, x_0_fourth_latents)
 
+    """
     if args.with_tracking:
         wandb.log({'Table': table})
         wandb.log({'mean_T0T' : mean_T0T,'std_T0T' : std_T0T,'mean_0T0' : mean_0T0,'std_0T0' : std_0T0,})
-
-
+        wandb.finish()
+    """
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='diffusion watermark')
-    parser.add_argument('--run_name', default='test')
+    parser.add_argument('--run_name', default='50_1_1000_0')
     parser.add_argument('--dataset', default='Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('--start', default=0, type=int)
     parser.add_argument('--end', default=10, type=int)
@@ -276,7 +279,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_images', default=1, type=int)
     parser.add_argument('--guidance_scale', default=1.0, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
-    parser.add_argument('--test_num_inference_steps', default=None, type=int)
+    parser.add_argument('--test_num_inference_steps', default=1000, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
     parser.add_argument('--max_num_log_image', default=100, type=int)
@@ -304,10 +307,10 @@ if __name__ == '__main__':
     
     # experiment
     parser.add_argument("--solver_order", default=1, type=int, help='1:DDIM, 2:DPM++') 
-    parser.add_argument("--edcorrector", action="store_true", default=False)
+    parser.add_argument("--edcorrector", action="store_true", default=True)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
-    parser.add_argument("--prompt_reuse", action='store_true', default=False, help="use the same prompt for inversion")
+    parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
     parser.add_argument("--answer", action='store_true', default=False, help="use answer latent for inversion")
 
     args = parser.parse_args()
