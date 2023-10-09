@@ -1,0 +1,21 @@
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_50_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 50 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_100_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 100 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_250_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 250 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_500_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 500 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_1000_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 1000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_2000_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 2000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_4000_0 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 4000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 50_1_50_1 --solver_order 1 --num_inference_steps 50 --inv_order 1 --test_num_inference_steps 50
+​
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_10_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 10 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_25_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 25 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_50_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 50 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_100_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 100 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_1000_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 1000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_2000_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 2000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_4000_0 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 4000 --inv_naive
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_10_1 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 10
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_25_1 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 25
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_50_1 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 50
+python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_100_1 --solver_order 2 --num_inference_steps 10 --inv_order 1 --test_num_inference_steps 100
+#python main_stablediffusion.py --start 0 --end 100 --prompt_reuse --edcorrector --with_tracking --run_name 10_2_10_2 --solver_order 2 --num_inference_steps 10 --inv_order 2 --test_num_inference_steps 10
