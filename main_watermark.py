@@ -195,7 +195,7 @@ def main(args):
         #x_T_first.append(init_latents.clone())
 
         # generate image
-        outputs_no_w, orig_latents_no_w = pipe(
+        outputs_no_w, latents_no_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -210,10 +210,10 @@ def main(args):
         #x_0_second_latents.append(orig_latents.clone())
         
         # get watermarking mask
-        watermarking_mask = get_watermarking_mask(init_latents_w, args, device) # Get initial 
+        watermarking_mask = get_watermarking_mask(init_latents_no_w, args, device) # Get initial 
 
         # inject watermark, injection occurs on frequency domain
-        init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args) # Saves latent with WM
+        init_latents_w = inject_watermark(init_latents_no_w, watermarking_mask, gt_patch, args) # Saves latent with WM
 
         if init_latents_no_w is None:
             set_random_seed(seed)
@@ -221,7 +221,7 @@ def main(args):
         else:
             init_latents_w = copy.deepcopy(init_latents_no_w)
 
-        outputs_w = pipe(
+        outputs_w, latents_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,

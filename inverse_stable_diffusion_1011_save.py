@@ -337,8 +337,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
                             h = lambda_t - lambda_s
                             alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
-                            phi_1 = torch.expm1(-h) 
-                            model_s = self.unet(latents, s, encoder_hidden_states=text_embeddings).sample
+                            phi_1 = torch.expm1(-h)
+                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
                             model_s = self.scheduler.convert_model_output(model_s, t, latents) #dpm->dpm++, timestep 맞음
                             x_t = latents
 

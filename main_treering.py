@@ -81,7 +81,7 @@ def main(args):
     table = None
     args.with_tracking=True
     
-    wandb.init(project='hello', name=args.run_name, tags=['tree_ring_watermark'])
+    wandb.init(entity='khlee0192', project='watermark', name=args.run_name, tags=['tree_ring_watermark'])
     wandb.config.update(args)
     table = wandb.Table(columns=['gen_no_w', 'no_w_clip_score', 'gen_w', 'w_clip_score', 'reverse_no_w', 'reverse_w', 'prompt', 'no_w_metric', 'w_metric'])
     
@@ -95,7 +95,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        #steps_offset = 1, #CHECK
+        steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -113,8 +113,8 @@ def main(args):
     pipe = InversableStableDiffusionPipeline.from_pretrained(
         args.model_id,
         scheduler=scheduler,
-        torch_dtype=torch.float16,
-        revision='fp16',
+        torch_dtype=torch.float32,
+        #revision='fp16',
         )
     pipe = pipe.to(device)
 
@@ -144,7 +144,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 1 :
+        if ind == 2 :
              break
         
         seed = i + args.gen_seed
@@ -157,7 +157,7 @@ def main(args):
         # generation without watermarking
         set_random_seed(seed)
         init_latents_no_w = pipe.get_random_latents()
-        outputs_no_w = pipe(
+        outputs_no_w, latents_no_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
@@ -181,7 +181,7 @@ def main(args):
         # inject watermark
         init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args)
 
-        outputs_w = pipe(
+        outputs_w, latents_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
