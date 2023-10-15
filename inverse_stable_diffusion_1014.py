@@ -244,24 +244,23 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     else:
                         text_embeddings = new_text_embeddings
 
-                # # expand the latents if we are doing classifier free guidance
-                # latent_model_input = (
-                #     torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                # )
-                
-                # latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                # expand the latents if we are doing classifier free guidance
+                latent_model_input = (
+                    torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                )
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # # predict the noise residual
-                # noise_pred = self.unet(
-                #     latent_model_input, t, encoder_hidden_states=text_embeddings
-                # ).sample
+                # predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input, t, encoder_hidden_states=text_embeddings
+                ).sample
 
-                # # perform guidance
-                # if do_classifier_free_guidance:
-                #     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                #     noise_pred = noise_pred_uncond + guidance_scale * (
-                #         noise_pred_text - noise_pred_uncond
-                #     )
+                # perform guidance
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (
+                        noise_pred_text - noise_pred_uncond
+                    )
 
                 prev_timestep = (
                     t
@@ -286,22 +285,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                     alpha_prod_s, alpha_prod_t = self.scheduler.alphas_cumprod[s], self.scheduler.alphas_cumprod[t]
                     phi_1 = torch.expm1(-h)
-
-                    # expand the latents if we are doing classifier free guidance
-                    latent_model_input = (
-                        torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                    )
                     
-                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)                    
-                    noise_pred = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
-                    
-                    # perform guidance
-                    noise_pred = self.apply_guidance_scale(noise_pred, guidance_scale)
-                    # if do_classifier_free_guidance:
-                    #     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)                    
-                        
-                    model_s = self.scheduler.convert_model_output(noise_pred, t, latents) #dpm->dpm++, timestep 맞음
+                    model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                    model_s = self.scheduler.convert_model_output(model_s, t, latents) #dpm->dpm++, timestep 맞음
                     x_t = latents
                                               
                     latents = (sigma_s / sigma_t) * (latents + alpha_t * phi_1 * model_s) #DPMsolver++
@@ -309,10 +295,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
                     if (inverse_opt):
                         torch.set_grad_enabled(True)
-                        if (inv_order == 2 and i == 0):
-                            latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, lr=3, th=1e-4, guidance_scale=guidance_scale)
+                        if inv_order == 2:
+                            latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, lr=3, th=1e-4)
                         else:
-                            latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, lr=0.3, th=1e-4, guidance_scale=guidance_scale)
+                            latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings)
                         torch.set_grad_enabled(False)
 
                 # Algorithm 2
@@ -334,20 +320,9 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 h = lambda_t - lambda_s
                                 alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                                 phi_1 = torch.expm1(-h)
-
-                                # expand the latents if we are doing classifier free guidance
-                                y_input = (
-                                    torch.cat([y] * 2) if do_classifier_free_guidance else y
-                                )
-                                y_input = self.scheduler.scale_model_input(y_input, t)
-
-                                model_s = self.unet(y_input, s, encoder_hidden_states=text_embeddings).sample
-                                # perform guidance
-                                noise_pred = self.apply_guidance_scale(model_s, guidance_scale)
-                                # if do_classifier_free_guidance:
-                                #     noise_pred_uncond, noise_pred_text = model_s.chunk(2)
-                                #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)     
-                                model_s = self.scheduler.convert_model_output(noise_pred, t, y) # heuristically t
+                                
+                                model_s = self.unet(y, s, encoder_hidden_states=text_embeddings).sample
+                                model_s = self.scheduler.convert_model_output(model_s, t, y)
                                 
                                 y_t = y
                                 
@@ -357,7 +332,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 # Line 6 ~ 10
                                 if inverse_opt:
                                     torch.set_grad_enabled(True)
-                                    y = self.differential_correction(y, s, t, y_t, order=1, text_embeddings=text_embeddings, lr=0.3, th=1e-4, guidance_scale=guidance_scale)
+                                    y = self.differential_correction(y, s, t, y_t, order=inv_order, r=r, text_embeddings=text_embeddings)
                                     torch.set_grad_enabled(False)
                             
                             # Line 12 ~18
@@ -374,21 +349,14 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             x_t = latents
                             
                             y_t_model_input = (torch.cat([y_t] * 2) if do_classifier_free_guidance else y_t)
-                            y_t_model_input = self.scheduler.scale_model_input(y_t_model_input, s)
+                            y_t_model_input = self.scheduler.scale_model_input(y_t, s)
                             model_s_output = self.unet(y_t_model_input, s, encoder_hidden_states=text_embeddings).sample
-                            # perform guidance
-                            noise_pred = self.apply_guidance_scale(model_s_output, guidance_scale)
-                            model_s_output = self.scheduler.convert_model_output(noise_pred, s, y_t)
+                            model_s_output = self.scheduler.convert_model_output(model_s_output, s, y_t)
                             
                             y_model_input = (torch.cat([y] * 2) if do_classifier_free_guidance else y)
-                            y_model_input = self.scheduler.scale_model_input(y_model_input, r)
+                            y_model_input = self.scheduler.scale_model_input(y, r)
                             model_r_output = self.unet(y_model_input, r, encoder_hidden_states=text_embeddings).sample
-                            # perform guidance
-                            noise_pred = self.apply_guidance_scale(model_r_output, guidance_scale)
-                            # if do_classifier_free_guidance:
-                            #     noise_pred_uncond, noise_pred_text = model_r_output.chunk(2)
-                            #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)                            
-                            model_r_output = self.scheduler.convert_model_output(noise_pred, r, y)
+                            model_r_output = self.scheduler.convert_model_output(model_r_output, r, y)
                             
                             # Line 12
                             latents = (sigma_s / sigma_t) * (latents + alpha_t * phi_1 * model_s_output)
@@ -397,7 +365,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             if inverse_opt:
                                 torch.set_grad_enabled(True)
                                 latents = self.differential_correction(latents, s, t, x_t, order=inv_order, r=r,
-                                                                  model_s_output=model_s_output, model_r_output=model_r_output, text_embeddings=text_embeddings,lr=0.3, th=1e-4, guidance_scale=guidance_scale)
+                                                                  model_s_output=model_s_output, model_r_output=model_r_output, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)
                             
                         # Line 19 ~
@@ -410,19 +378,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             h = lambda_t - lambda_s
                             alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                             phi_1 = torch.expm1(-h)
-
-                            # expand the latents if we are doing classifier free guidance
-                            latent_model_input = (
-                                torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                            )
-                            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)      
-
-                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
-                            # perform guidance
-                            if do_classifier_free_guidance:
-                                noise_pred_uncond, noise_pred_text = model_s.chunk(2)
-                                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)         
-                            model_s = self.scheduler.convert_model_output(noise_pred, t, latents)
+                            
+                            #model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            model_s = self.unet(latents, s, encoder_hidden_states=text_embeddings).sample
+                            model_s = self.scheduler.convert_model_output(model_s, t, latents)
                             
                             x_t = latents
                             
@@ -432,7 +391,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             # Line 20 ~ 23
                             if (inverse_opt):
                                 torch.set_grad_enabled(True)
-                                latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, lr=0.3, th=1e-4, guidance_scale=guidance_scale)
+                                latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings)
                                 torch.set_grad_enabled(False)      
                         else:
                             raise Exception("Index Error!")
@@ -442,9 +401,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         return latents
 
 
-    def differential_correction(self, x, s, t, x_t, r=None, order=1, use_float=False, n_iter=100, lr=1e-3, th=1e-4, momentum=0.0, 
-                                model_s_output=None, model_r_output=None, text_embeddings=None, guidance_scale=3.0):
-        do_classifier_free_guidance = guidance_scale > 1.0
+    def differential_correction(self, x, s, t, x_t, r=None, order=1, use_float=False, n_iter=500, lr=0.3, th=1e-4, momentum=0, model_s_output=None, model_r_output=None, text_embeddings=None):
         if order==1:
             import copy
             model = copy.deepcopy(self.unet).float()
@@ -454,44 +411,34 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             input.requires_grad_(True)
             loss_function = torch.nn.MSELoss(reduction='sum')
-            optimizer = torch.optim.SGD([input], lr=lr, momentum=momentum)
+            optimizer = torch.optim.SGD([input], lr=lr)
             #lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=2, num_training_steps=n_iter)
 
-            #lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-
             for i in range(n_iter):
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = (
-                    torch.cat([input] * 2) if do_classifier_free_guidance else input
-                )
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-
-                noise_pred = model(latent_model_input , s, encoder_hidden_states=text_embeddings).sample.detach() # estimated noise
-                # perform guidance
-                noise_pred = self.apply_guidance_scale(noise_pred, guidance_scale)                   
+                model_output = model(input, s, encoder_hidden_states=text_embeddings).sample.detach() # estimated noise
+    
                 lambda_t, lambda_s = self.scheduler.lambda_t[t], self.scheduler.lambda_t[s]
                 alpha_t, alpha_s = self.scheduler.alpha_t[t], self.scheduler.alpha_t[s]
                 alpha_prod_t, alpha_prod_s = self.scheduler.alphas_cumprod[t], self.scheduler.alphas_cumprod[s]
                 sigma_t, sigma_s = self.scheduler.sigma_t[t], self.scheduler.sigma_t[s]
                 h = lambda_t - lambda_s
-                phi_1 = torch.expm1(-h)
-                # TODO
-                model_output = self.scheduler.convert_model_output(noise_pred, s, input).detach() #dpm->dpm++, timestep 맞음
-                x_t_pred = (sigma_t / sigma_s) * input - (alpha_t * phi_1 ) * model_output #DPMsolver++
+
+                model_output = self.scheduler.convert_model_output(model_output, s, input).detach() #dpm->dpm++, timestep 맞음
+                x_t_pred = (sigma_t / sigma_s) * input - (alpha_t * (torch.exp(-h) - 1.0)) * model_output #DPMsolver++
                 
                 # x_t_pred = alpha_t/alpha_s * input - sigma_t * torch.expm1(h) * model_output #DPMsolver
 
                 loss = loss_function(x_t_pred, x_t)
                 
-                if i%10 == 0 :
-                   print(f"1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%1 == 0 :
+                #    print(f"t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
                     
                 if loss.item() < th:
                     break             
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                #lr_scheduler.step(loss)
+                #lr_scheduler.step()
             return input
                     
         elif order==2:
@@ -508,21 +455,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             optimizer = torch.optim.SGD([input], lr=lr, momentum=momentum)
             #optimizer = torch.optim.Adam([input], lr=lr)
             #lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=2, num_training_steps=n_iter)
-            # ReduceLROnPlateau 스케줄러 설정
-            # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-
-            # expand the latents if we are doing classifier free guidance
-            # x_t_input = (
-            #     torch.cat([x_t] * 2) if do_classifier_free_guidance else x_t
-            # )
-            # x_t_input = self.scheduler.scale_model_input(x_t_input, t)            
-            # # for 2nd order correction
-            # model_t_output = model(x_t_input, t, encoder_hidden_states=text_embeddings).sample.detach()
-            # # perform guidance
-            # if do_classifier_free_guidance:
-            #     noise_pred_uncond, noise_pred_text = model_t_output.chunk(2)
-            #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond) 
-            # model_t_output = self.scheduler.convert_model_output(noise_pred, t, x_t).detach()
+            
+            # for 2nd order correction
+            model_t_output = model(x_t, t, encoder_hidden_states=text_embeddings).sample.detach()
+            model_t_output = self.scheduler.convert_model_output(model_t_output, t, x_t).detach()
             
             lambda_r, lambda_s, lambda_t = self.scheduler.lambda_t[r], self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
             sigma_r, sigma_s, sigma_t = self.scheduler.sigma_t[r], self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
@@ -533,20 +469,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             phi_1 = torch.expm1(-h)
             
             for i in range(n_iter):
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = (
-                    torch.cat([input] * 2) if do_classifier_free_guidance else input
-                )
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-
-                model_output = model(latent_model_input, s, encoder_hidden_states=text_embeddings).sample.detach()
-                # perform guidance
-                noise_pred = self.apply_guidance_scale(model_output, guidance_scale)
-                # if do_classifier_free_guidance:
-                #     noise_pred_uncond, noise_pred_text = model_output.chunk(2)
-                #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond) 
-
-                model_output = self.scheduler.convert_model_output(noise_pred, s, input).detach()
+                model_output = model(input, s, encoder_hidden_states=text_embeddings).sample.detach()
+                model_output = self.scheduler.convert_model_output(model_output, s, input).detach()
                 
                 x_t_pred = (sigma_t / sigma_s) * input - (alpha_t * phi_1) * model_output
                 
@@ -559,8 +483,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 
                 loss = loss_function(x_t_pred, x_t)
                 
-                if i%10 == 0 :
-                   print(f"2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%1 == 0 :
+                #    print(f"t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
                 
                 if loss.item() < th:
                     break
@@ -568,7 +492,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                # lr_scheduler.step(loss)
+                #lr_scheduler.step()
             return input
         else:
             raise NotImplementedError
@@ -606,65 +530,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         optimizer = torch.optim.Adam([z], lr=0.1)
         lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
 
-        t =self.scheduler.timesteps[-1]
-        scheduler = copy.deepcopy(self.scheduler)
-        unet = copy.deepcopy(self.unet).float()
-
-        lam = 1
-
-        """
-        z_output = copy.deepcopy(z)
-        z_output = scheduler.convert_model_output(z_output, t, z)
-        z_output = scheduler.step(z_output, t, z).prev_sample
-        """
-
         for i in self.progress_bar(range(100)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
             
-            # if i%100==0:
-            # print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
-            
-            """
-            #if, with unet regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-            #noise = noise.detach()
-
-            loss = loss_function(x_pred, input) + lam * torch.sum(torch.abs(noise))
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.sum(torch.abs(noise)).detach()
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-                
-            """ if, with ddim regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-                sample = scheduler.step(noise, t, z).prev_sample
-            sample = sample.detach()
-
-            loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = loss_function(z, sample).detach()
-
-            #losses.append(loss.detach().item())
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-            
-            """#if, with z regularizer
-            
-            loss = loss_function(x_pred, input) + torch.norm(z)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.norm(z)
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
+           
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -699,11 +571,3 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
         return image
-
-    def apply_guidance_scale(self, model_output, guidance_scale):
-        if guidance_scale > 1.0:
-            noise_pred_uncond, noise_pred_text = model_output.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-            return noise_pred
-        else:
-            return model_output
