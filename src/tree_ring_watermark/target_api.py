@@ -3,7 +3,7 @@ import torch
 import torchvision
 
 from diffusers import DPMSolverMultistepScheduler, DiffusionPipeline, DDIMScheduler
-from inverse_stable_diffusion import InversableStableDiffusionPipeline
+from inverse_stable_diffusion_save_1012 import InversableStableDiffusionPipeline
 
 from _get_noise import get_noise
 from _detect import detect

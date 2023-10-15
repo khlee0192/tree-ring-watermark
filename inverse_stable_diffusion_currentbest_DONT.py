@@ -232,6 +232,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             if (reverse_process):
                 timesteps_tensor = reversed(timesteps_tensor)
 
+            self.unet = self.unet.float()
+            latents = latents.float()
+            text_embeddings = text_embeddings.float()
+
             # timesteps_tensor : the lower the index, the closer to the image
             for i, t in enumerate(self.progress_bar(timesteps_tensor)):
                 if prompt_to_prompt:
@@ -281,16 +285,17 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                     alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                     alpha_prod_s, alpha_prod_t = self.scheduler.alphas_cumprod[s], self.scheduler.alphas_cumprod[t]
                     phi_1 = torch.expm1(-h)
-                    model_s = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
-                    model_s = self.scheduler.convert_model_output(model_s, t, latent_model_input)
+                    
+                    model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                    model_s = self.scheduler.convert_model_output(model_s, t, latents) #dpm->dpm++, timestep 맞음
                     x_t = latents
                                               
                     latents = (sigma_s / sigma_t) * (latents + alpha_t * phi_1 * model_s) #DPMsolver++
-                    #latents = alpha_s/alpha_t * (latents + sigma_t * torch.expm1(h) * model_s) #DPMsolver            
+                    # latents = alpha_s/alpha_t * (latents + sigma_t * torch.expm1(h) * model_s) #DPMsolver            
 
                     if (inverse_opt):
                         torch.set_grad_enabled(True)
-                        latents = self.differential_correction(latents, t, s, x_t, order=1, text_embeddings=text_embeddings)
+                        latents = self.differential_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings)
                         torch.set_grad_enabled(False)
 
                 # Algorithm 2
@@ -308,9 +313,11 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 h = lambda_t - lambda_s
                                 alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                                 phi_1 = torch.expm1(-h)
+                                
                                 model_s = self.unet(y, s, encoder_hidden_states=text_embeddings).sample
+                                #model_s = self.scheduler.convert_model_output(model_s, t, y) #dpm->dpm++ #CHECK
                                 # question : is it y or latents?
-
+                            
                                 y_t = y
 
                                 #y = (sigma_s / sigma_t * y + sigma_s / sigma_t * alpha_t * phi_1 * model_s) #DPMsolver++
@@ -331,7 +338,8 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             h = lambda_t - lambda_s
                             alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                             phi_1 = torch.expm1(-h)
-                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample   
+                            model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            #model_s = self.scheduler.convert_model_output(model_s, t, latents) #dpm->dpm++, timestep 맞음
                             x_t = latents
 
                             if not inverse_opt:
@@ -343,10 +351,12 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                                 y_t_model_input = (torch.cat([y_t] * 2) if do_classifier_free_guidance else y_t)
                                 y_t_model_input = self.scheduler.scale_model_input(y_t, s)
                                 model_s_output = self.unet(y_t_model_input, s, encoder_hidden_states=text_embeddings).sample
+                                #model_s_output = self.scheduler.convert_model_output(model_s_output, s, y_t) #dpm->dpm++ #CHECK
                                 
                                 y_model_input = (torch.cat([y] * 2) if do_classifier_free_guidance else y)
                                 y_model_input = self.scheduler.scale_model_input(y, r)
                                 model_r_output = self.unet(y_model_input, r, encoder_hidden_states=text_embeddings).sample
+                                #model_r_output = self.scheduler.convert_model_output(model_r_output, r, y) #dpm->dpm++ #CHECK
                             
                                 # not naive DDIM inversion
                                 #latents = (sigma_s / sigma_t * latents + sigma_s / sigma_t * alpha_t * phi_1 * model_s_output) #DPMsolver++
@@ -367,6 +377,7 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
                             alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
                             alpha_prod_s, alpha_prod_t = self.scheduler.alphas_cumprod[s], self.scheduler.alphas_cumprod[t]
                             model_s = self.unet(latent_model_input, s, encoder_hidden_states=text_embeddings).sample
+                            #model_s = self.scheduler.convert_model_output(model_s, t, latents) #dpm->dpm++ #CHECK
 
                             x_t = latents
 
@@ -384,13 +395,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         return latents    
 
 
-    def differential_correction(self, x, s, t, x_t, r=None, order=1, use_float=False, n_iter=100, lr=0.05, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
+    def differential_correction(self, x, s, t, x_t, r=None, order=1, use_float=False, n_iter=1000, lr=0.1, th=1e-6, model_s_output=None, model_r_output=None, text_embeddings=None):
         if order==1:
             import copy
-            model = copy.deepcopy(self.unet)
-            input = x.clone()
-            x_t = x_t.clone()
-            text_embeddings = text_embeddings.clone()
+            model = copy.deepcopy(self.unet).float()
+            input = x.clone().float()
+            x_t = x_t.clone().float()
+            text_embeddings = text_embeddings.clone().float()
 
             input.requires_grad_(True)
             loss_function = torch.nn.MSELoss(reduction='sum')
@@ -398,19 +409,23 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             for i in range(n_iter):
                 model_output = model(input, s, encoder_hidden_states=text_embeddings).sample.detach() # estimated noise
-                model_output = self.scheduler.convert_model_output(model_output, s, input)
     
                 lambda_t, lambda_s = self.scheduler.lambda_t[t], self.scheduler.lambda_t[s]
                 alpha_t, alpha_s = self.scheduler.alpha_t[t], self.scheduler.alpha_t[s]
                 alpha_prod_t, alpha_prod_s = self.scheduler.alphas_cumprod[t], self.scheduler.alphas_cumprod[s]
                 sigma_t, sigma_s = self.scheduler.sigma_t[t], self.scheduler.sigma_t[s]
                 h = lambda_t - lambda_s
-                
-                #x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t, s, input) #DPMsolver++
+
+                model_output = self.scheduler.convert_model_output(model_output, s, input).detach() #dpm->dpm++, timestep 맞음
                 x_t_pred = (sigma_t / sigma_s) * input - (alpha_t * (torch.exp(-h) - 1.0)) * model_output #DPMsolver++
-                #x_t_pred = alpha_t/alpha_s * input - sigma_t * torch.expm1(h) * model_output #DPMsolver
+                
+                # x_t_pred = alpha_t/alpha_s * input - sigma_t * torch.expm1(h) * model_output #DPMsolver
 
                 loss = loss_function(x_t_pred, x_t)
+                
+                # if i%10 == 0 :
+                #    print(f"t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                    
                 if loss.item() < th:
                     break             
                 optimizer.zero_grad()
@@ -422,10 +437,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             assert r is not None
             # only for multistep
             import copy
-            model = copy.deepcopy(self.unet)
-            input = x.clone()
-            x_t = x_t.clone()   
-            text_embeddings = text_embeddings.clone()
+            model = copy.deepcopy(self.unet).float()
+            input = x.clone().float()
+            x_t = x_t.clone().float()
+            text_embeddings = text_embeddings.clone().float()
 
             input.requires_grad_(True)
             loss_function = torch.nn.MSELoss(reduction='sum')
@@ -433,9 +448,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             
             # for 2nd order correction
             model_t_output = model(x_t, t, encoder_hidden_states=text_embeddings).sample.detach()
+            #model_t_output = self.scheduler.convert_model_output(model_t_output, t, x_t).detach() #dpm->dpm++ #CHECK
 
             lambda_prev_1, lambda_prev_0, lambda_t = self.scheduler.lambda_t[r], self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-            sigma_t = self.scheduler.sigma_t[t]
+            sigma_prev0, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
             alpha_prev_0, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
             h_0 = lambda_prev_0 - lambda_prev_1
             h = lambda_t - lambda_prev_0
@@ -444,9 +460,11 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             for i in range(n_iter):
                 model_output = model(input, s, encoder_hidden_states=text_embeddings).sample.detach() # estimated noise
-
-                #x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t, s, input) #DPMsolver++
+                #model_output = self.scheduler.convert_model_output(model_output, s, input).detach() #dpm->dpm++ #CHECK
+                
+                ##x_t_pred = self.scheduler.dpm_solver_first_order_update(model_output, t, s, input) #DPMsolver++
                 x_t_pred = alpha_t/alpha_prev_0 * input - sigma_t * torch.expm1(h) * model_output #DPMsolver
+                #x_t_pred = (sigma_t / sigma_prev0) * input - (alpha_t * (torch.exp(-h) - 1.0)) * model_output #DPMsolver++
 
                 # 2nd order correction..
                 # diff = (1. / r0) * (model_t_output - model_output)
@@ -502,6 +520,11 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         ## Adjusting Adam
         optimizer = torch.optim.Adam([z], lr=1e-2)
 
+        t =self.scheduler.timesteps[-1]
+        scheduler = copy.deepcopy(self.scheduler)
+        unet = copy.deepcopy(self.unet).float()
+
+        lam = 1
 
         """
         z_output = copy.deepcopy(z)
@@ -514,6 +537,10 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
+
+            # if i%100==0:
+            #     print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
+            
 
             """
             #if, with unet regularizer
@@ -559,11 +586,13 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
             #scheduler.step()
             
         #plt.plot(losses)
-        return z.half()
-
+        #return z.half() 
+        return z
+    
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
+        #self.vae = self.vae.float()
         image = [
             self.vae.decode(scaled_latents[i : i + 1]).sample for i in range(len(latents))
         ]

@@ -8,7 +8,7 @@ from sklearn import metrics
 import torch
 from torchvision.transforms.functional import to_pil_image
 
-from inverse_stable_diffusion import InversableStableDiffusionPipeline 
+from inverse_stable_diffusion_save_1012 import InversableStableDiffusionPipeline 
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *

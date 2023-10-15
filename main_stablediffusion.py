@@ -173,14 +173,15 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 1 :
+        if ind == 2 :
              break
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
 
         if args.prompt_reuse:
-            text_embeddings = pipe.get_text_embedding(current_prompt)
+            #text_embeddings = pipe.get_text_embedding(current_prompt)
+            text_embeddings = pipe._encode_prompt(current_prompt, do_classifier_free_guidance=args.guidance_scale, device=device, num_images_per_prompt=1)
 
         ### generation
 
@@ -220,7 +221,7 @@ def main(args):
         reversed_latents = pipe.forward_diffusion(
             latents=image_latents if not args.answer else orig_latents, 
             text_embeddings=text_embeddings,
-            guidance_scale=1.0,
+            guidance_scale=args.guidance_scale,
             num_inference_steps=args.test_num_inference_steps,
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order
@@ -272,7 +273,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
-    parser.add_argument('--guidance_scale', default=1.0, type=float)
+    parser.add_argument('--guidance_scale', default=3.0, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
     parser.add_argument('--test_num_inference_steps', default=1000, type=int)
     parser.add_argument('--reference_model', default=None)
@@ -302,7 +303,7 @@ if __name__ == '__main__':
     
     # experiment
     parser.add_argument("--solver_order", default=2, type=int, help='1:DDIM, 2:DPM++') 
-    parser.add_argument("--edcorrector", action="store_true")
+    parser.add_argument("--edcorrector", action="store_true", default=True)
     parser.add_argument("--inv_naive", action='store_true', default=False, help="Naive DDIM of inversion")
     parser.add_argument("--inv_order", type=int, default=None, help="order of inversion, default:same as sampling")
     parser.add_argument("--prompt_reuse", action='store_true', default=True, help="use the same prompt for inversion")
