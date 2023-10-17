@@ -689,6 +689,49 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
 
         return z
     
+    def edcorrector_tuning(self, x, lr=0.1, n_iter=100):
+        """
+        edcorrector calculates latents z of the image x by solving optimization problem ||E(x)-z||,
+        not by directly encoding with VAE encoder. "Decoder inversion"
+
+        INPUT
+        x : image data (1, 3, 512, 512) -> given data
+        OUTPUT
+        z : modified latent data (1, 4, 64, 64)
+
+        Goal : minimize norm(e(x)-z), working on adding regularizer
+        """
+        input = x.clone().float()
+
+        z = self.get_image_latents(x).clone().float() # initial z
+        z.requires_grad_(True)
+
+        # Loss를 계산할 때 무언가를 가져와야 한다
+        loss_function = torch.nn.MSELoss(reduction='sum')
+
+        optimizer = torch.optim.Adam([z], lr=lr)
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+
+        for i in self.progress_bar(range(n_iter)):
+            x_pred = self.decode_image_for_gradient_float(z)
+
+            #if, without regularizer
+            loss = loss_function(x_pred, input)
+            
+            if i%1==0:
+                print(f"ed, Iteration {i}, Loss: {loss.item()}")
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+
+            if i==0:
+                initial_loss = loss.item().detach()
+            #scheduler.step()
+        final_loss = loss.item().detach()
+        return z, initial_loss, final_loss
+    
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
         scaled_latents = 1 / 0.18215 * latents
