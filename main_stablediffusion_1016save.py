@@ -10,8 +10,7 @@ import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 import torchvision.transforms as transforms
 
-from inverse_stable_diffusion import InversableStableDiffusionPipeline2 
-#from inverse_stable_diffusion_fixed import InversableStableDiffusionPipeline2 
+from inverse_stable_diffusion import InversableStableDiffusionPipeline 
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
@@ -140,7 +139,8 @@ def main(args):
     table = None
     if args.with_tracking:
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
-        wandb.init(project='Hyperparameter_tuning_order2', name=args.run_name)
+        #wandb.init(project='Hyperparameter_tuning_order2', name=args.run_name)
+        wandb.init(entity='khlee0192', project='work_on_guidance_scale_3', name=args.run_name, tags=['tree_ring_watermark'])
         wandb.config.update(args)
         table = wandb.Table(columns=['image','recon_image','n2n_error','i2i_error', 'prompt'])
     
@@ -169,7 +169,7 @@ def main(args):
         # prediction_type, thresholding, use_karras_sigmas, variance_type
         )
 
-    pipe = InversableStableDiffusionPipeline2.from_pretrained(
+    pipe = InversableStableDiffusionPipeline.from_pretrained(
         args.model_id,
         scheduler=scheduler,
         torch_dtype=torch.float32,
@@ -197,8 +197,9 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind==2: break
-        
+        if ind==10:
+            break
+
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
 
@@ -233,8 +234,7 @@ def main(args):
 
         # image to latent
         img = transform_img(orig_image).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        if args.answer:
-            pass
+        
         if args.edcorrector:
             image_latents = pipe.edcorrector(img)
         else:    
