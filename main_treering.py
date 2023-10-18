@@ -81,7 +81,7 @@ def main(args):
     table = None
     args.with_tracking=True
     
-    wandb.init(entity='khlee0192', project='watermark', name=args.run_name, tags=['tree_ring_watermark'])
+    wandb.init(entity='khlee0192', project='treering_from_1018', name=args.run_name, tags=['tree_ring_watermark'])
     wandb.config.update(args)
     table = wandb.Table(columns=['gen_no_w', 'no_w_clip_score', 'gen_w', 'w_clip_score', 'reverse_no_w', 'reverse_w', 'prompt', 'no_w_metric', 'w_metric'])
     
@@ -95,7 +95,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        steps_offset = 1, #CHECK
+        #steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -110,7 +110,7 @@ def main(args):
         # prediction_type, thresholding, use_karras_sigmas, variance_type
         )
 
-    pipe = InversableStableDiffusionPipeline.from_pretrained(
+    pipe = InversableStableDiffusionPipeline2.from_pretrained(
         args.model_id,
         scheduler=scheduler,
         torch_dtype=torch.float32,
@@ -144,7 +144,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind == 2 :
+        if ind == args.length:
              break
         
         seed = i + args.gen_seed
@@ -152,6 +152,8 @@ def main(args):
         
         if args.prompt_reuse:
             text_embeddings = pipe.get_text_embedding(current_prompt)
+            text_embeddings = pipe._encode_prompt(
+                    current_prompt, 'cuda', 1, True, None)
 
         ### generation
         # generation without watermarking
@@ -209,20 +211,10 @@ def main(args):
         reversed_latents_no_w = pipe.forward_diffusion(
             latents=image_latents_no_w,
             text_embeddings=text_embeddings,
-            guidance_scale=1,
+            guidance_scale=args.guidance_scale,
             num_inference_steps=args.test_num_inference_steps,
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order
-        )
-
-        noise_latents_no_w = pipe.backward_diffusion(
-            latents=image_latents_no_w,
-            text_embeddings=text_embeddings,
-            guidance_scale=1,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order,
-            reverse_process=True
         )
 
         reversed_image_no_w = to_pil_image(((pipe.decode_image(reversed_latents_no_w)/2+0.5).clamp(0,1))[0])
@@ -240,7 +232,7 @@ def main(args):
         reversed_latents_w = pipe.forward_diffusion(
             latents=image_latents_w,
             text_embeddings=text_embeddings,
-            guidance_scale=1,
+            guidance_scale=args.guidance_scale,
             num_inference_steps=args.test_num_inference_steps,
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order,
@@ -303,12 +295,13 @@ if __name__ == '__main__':
     parser.add_argument('--run_name', default='test')
     parser.add_argument('--dataset', default='Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('--start', default=0, type=int)
-    parser.add_argument('--end', default=10, type=int)
+    parser.add_argument('--end', default=1000, type=int)
+    parser.add_argument('--length', default=1000, type=int)
     parser.add_argument('--image_length', default=512, type=int)
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
-    parser.add_argument('--guidance_scale', default=7.5, type=float)
+    parser.add_argument('--guidance_scale', default=3.0, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
     parser.add_argument('--test_num_inference_steps', default=None, type=int)
     parser.add_argument('--reference_model', default=None)

@@ -29,7 +29,7 @@ def compare_latents(z, z_comp):
     returns norm(z-z_comp)/norm(z_comp)
     """
     diff = z - z_comp
-    return torch.norm(diff)/torch.norm(z_comp)
+    return (torch.norm(diff)/torch.norm(z_comp))**2
 
 def plot_compare(latent, modified_latent, pipe, title):
     # Latent, pipe -> draw image, maybe good to make clean code
@@ -141,7 +141,7 @@ def main(args):
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
         wandb.init(project='tuning edcorrector', name=args.run_name)
         wandb.config.update(args)
-        table = wandb.Table(columns=['initial loss','final loss', 'prompt'])
+        table = wandb.Table(columns=['initial loss','final loss', 'error', 'prompt'])
     
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -190,7 +190,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind==10: break
+        if ind==args.length: break
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
@@ -225,21 +225,21 @@ def main(args):
         
         start_time = time.time()
 
-        image_latents, initial_loss, final_loss = pipe.edcorrector(img, lr=args.ed_lr, n_iter=args.ed_niter)
+        image_latents, initial_loss, final_loss = pipe.edcorrector_tuning(img, lr=args.ed_lr, n_iter=args.ed_niter)
 
         end_time = time.time()
         
-        error = compare_latents(orig_latents, image_latents)
+        error = compare_latents(image_latents, orig_latents)
 
         if args.with_tracking:
             #table.add_data(wandb.Image(orig_image),wandb.Image(reconstructed_image),n2n_error,i2i_error,current_prompt)
-            table.add_data(initial_loss, final_loss, current_prompt)
+            table.add_data(initial_loss, final_loss, error, current_prompt)
         
         ind = ind + 1
         
         initial_losses.append(initial_loss)
         final_losses.append(final_loss)
-        errors.append(error)
+        errors.append(error.detach().cpu().numpy())
         forward_time.append(end_time - start_time)
 
     print("average nmse of latents : ", np.mean(errors))
@@ -259,6 +259,7 @@ if __name__ == '__main__':
     parser.add_argument('--run_name', default='test')
     parser.add_argument('--ed_lr', default=0.1, type=float)
     parser.add_argument('--ed_niter', default=100, type=int)
+    parser.add_argument('--length', default=10, type=int)
     parser.add_argument('--dataset', default='Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('--start', default=0, type=int)
     parser.add_argument('--end', default=10, type=int)

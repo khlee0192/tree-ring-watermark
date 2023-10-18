@@ -10,7 +10,7 @@ import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 import torchvision.transforms as transforms
 
-from inverse_stable_diffusion_save_1012 import InversableStableDiffusionPipeline 
+from inverse_stable_diffusion import InversableStableDiffusionPipeline2
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
@@ -114,11 +114,11 @@ def evaluate(t1,t2,t3,t4):
 
 def main(args):
     table = None
-    args.with_tracking = True
+    args.with_tracking = False
     if args.with_tracking:
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name, tags=['tree_ring_watermark'])
-        wandb.init(entity='khlee0192', project='diffusion_watermark', name=args.run_name, tags=['tree_ring_watermark'])
+        wandb.init(entity='khlee0192', project='main_watermark test', name=args.run_name, tags=['tree_ring_watermark'])
         wandb.config.update(args)
         table = wandb.Table(columns=['gen_no_w', 'no_w_clip_score', 'gen_w', 'w_clip_score', 'prompt', 'no_w_metric', 'w_metric'])
     
@@ -147,7 +147,7 @@ def main(args):
         # prediction_type, thresholding, use_karras_sigmas, variance_type
         )
 
-    pipe = InversableStableDiffusionPipeline.from_pretrained(
+    pipe = InversableStableDiffusionPipeline2.from_pretrained(
         args.model_id,
         scheduler=scheduler,
         torch_dtype=torch.float32,
@@ -176,7 +176,7 @@ def main(args):
     accuracy_dist = []
 
     for i in tqdm(range(args.start, args.end)):
-        if ind == 1 :
+        if ind == args.length :
              break
         
         seed = i + args.gen_seed
@@ -312,12 +312,13 @@ if __name__ == '__main__':
     parser.add_argument('--run_name', default='50_1_1000_0')
     parser.add_argument('--dataset', default='Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('--start', default=0, type=int)
-    parser.add_argument('--end', default=10, type=int)
+    parser.add_argument('--end', default=1000, type=int)
+    parser.add_argument('--length', default=1000, type=int)
     parser.add_argument('--image_length', default=512, type=int)
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
     parser.add_argument('--with_tracking', action='store_true')
     parser.add_argument('--num_images', default=1, type=int)
-    parser.add_argument('--guidance_scale', default=1.0, type=float)
+    parser.add_argument('--guidance_scale', default=3.0, type=float)
     parser.add_argument('--num_inference_steps', default=50, type=int)
     parser.add_argument('--test_num_inference_steps', default=50, type=int)
     parser.add_argument('--reference_model', default=None)

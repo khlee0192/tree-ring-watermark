@@ -584,8 +584,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 loss = torch.nn.functional.mse_loss(x_t_pred, x_t, reduction='sum')
                 if loss.item() < th:
                     break                
-                if i%10 == 0 :
-                   print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%10 == 0 :
+                #    print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
 
                 input = input - step_size * (x_t_pred- x_t) # forward step method
             
@@ -642,8 +642,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 # Check for convergence
                 if loss.item() < th:
                     break                
-                if i%10 == 0 :
-                   print(f"Fixed, 2st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%10 == 0 :
+                #    print(f"Fixed, 2st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
                 input = input - step_size * (x_t_pred- x_t)  # forward step method              
             return input
         else:
@@ -669,17 +669,17 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         # Loss를 계산할 때 무언가를 가져와야 한다
         loss_function = torch.nn.MSELoss(reduction='sum')
 
-        optimizer = torch.optim.Adam([z], lr=0.1)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+        optimizer = torch.optim.Adam([z], lr=0.15)
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=300)
 
-        for i in self.progress_bar(range(100)):
+        for i in self.progress_bar(range(300)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
             
-            if i%10==0:
-                print(f"ed, Iteration {i}, Loss: {loss.item()}")
+            # if i%100==0:
+            #     print(f"ed, Iteration {i}, Loss: {loss.item()}")
             
             optimizer.zero_grad()
             loss.backward()
@@ -710,7 +710,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         loss_function = torch.nn.MSELoss(reduction='sum')
 
         optimizer = torch.optim.Adam([z], lr=lr)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=n_iter)
+        #lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, 0.5)
 
         for i in self.progress_bar(range(n_iter)):
             x_pred = self.decode_image_for_gradient_float(z)
@@ -727,9 +728,9 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
             lr_scheduler.step()
 
             if i==0:
-                initial_loss = loss.item().detach()
+                initial_loss = loss.item()
             #scheduler.step()
-        final_loss = loss.item().detach()
+        final_loss = loss.item()
         return z, initial_loss, final_loss
     
     @torch.inference_mode()
