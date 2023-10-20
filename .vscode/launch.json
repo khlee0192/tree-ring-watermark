@@ -20,18 +20,19 @@
                 "--with_tracking",
                 //watermark
                 "--w_channel", "3",
-                "--w_pattern", "zeros",
+                "--w_pattern", "ring",
+                "--w_crosscheck",
                 // distortion
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",
                 //experiment
-                "--run_name", "zeros__ours, w ed_noise",
+                "--run_name", "TEST_crosscheck",
                 "--solver_order", "2",
                 "--num_inference_steps", "10",
                 //"--exact_inversion",
 
-                "--edcorrector",
-                //"--inv_naive",
+                //"--edcorrector",
+                "--inv_naive",
 
                 "--inv_order", "2",
                 "--test_num_inference_steps", "10",

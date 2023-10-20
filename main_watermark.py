@@ -335,6 +335,7 @@ if __name__ == '__main__':
     parser.add_argument('--w_measurement', default='l1_complex')
     parser.add_argument('--w_injection', default='complex')
     parser.add_argument('--w_pattern_const', default=0, type=float)
+    parser.add_argument('--w_crosscheck', action='store_true', default=True)
     
     # # for image distortion
     # parser.add_argument('--r_degree', default=None, type=float)
