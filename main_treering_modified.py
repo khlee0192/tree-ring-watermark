@@ -81,9 +81,9 @@ def main(args):
     table = None
     args.with_tracking=True
     
-    wandb.init(entity='khlee0192', project='watermark_detection_data', name=args.run_name, tags=['tree_ring_watermark'])
+    wandb.init(entity='khlee0192', project='modified_treering', name=args.run_name, tags=['tree_ring_watermark'])
     wandb.config.update(args)
-    table = wandb.Table(columns=['gen_no_w', 'no_w_clip_score', 'gen_w', 'w_clip_score', 'reverse_no_w', 'reverse_w', 'prompt', 'no_w_metric', 'w_metric'])
+    table = wandb.Table(columns=['gen_no_w', 'no_w_clip_score', 'gen_w', 'w_clip_score', 'FT_of_no_w', 'FT_of_w', 'prompt', 'no_w_metric', 'w_metric']) # TODO change!
     
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -182,7 +182,7 @@ def main(args):
         watermarking_mask = get_watermarking_mask(init_latents_w, args, device)
 
         # inject watermark
-        init_latents_w, _ = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args)
+        init_latents_w, init_latents_w_fft = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args)
 
         outputs_w, latents_w = pipe(
             current_prompt,
@@ -201,8 +201,7 @@ def main(args):
 
         # reverse img without watermarking
         img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        
-        # When we are only interested in w_metric
+
         if args.edcorrector:
             image_latents_no_w = pipe.edcorrector(img_no_w)
         else:    
@@ -217,11 +216,6 @@ def main(args):
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order
         )
-        
-        # when no_w_metric is also important, use this
-        #reversed_latents_no_w = init_latents_no_w
-
-        reversed_image_no_w = to_pil_image(((pipe.decode_image(reversed_latents_no_w)/2+0.5).clamp(0,1))[0])
 
         # reverse img with watermarking
         img_w = transform_img(orig_image_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
@@ -241,11 +235,15 @@ def main(args):
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order,
         )
-        reversed_image_w = to_pil_image(((pipe.decode_image(reversed_latents_w)/2+0.5).clamp(0,1))[0])
         
         # eval
+        #no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
+        no_w_metric, w_metric, ft_no_w, ft_w = eval_watermark_modified(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
 
-        no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
+        check = torch.abs(ft_w[0][args.w_channel].detach().cpu())[20:45, 20:45]
+
+        image_ft_no_w = to_pil_image(torch.abs(ft_no_w.detach().cpu())[0][args.w_channel])
+        image_ft_w = to_pil_image(torch.abs(ft_w.detach().cpu())[0][args.w_channel])
 
         if args.reference_model is not None:
             sims = measure_similarity([orig_image_no_w, orig_image_w], current_prompt, ref_model, ref_clip_preprocess, ref_tokenizer, device)
@@ -265,9 +263,9 @@ def main(args):
         if args.with_tracking:
             if (args.reference_model is not None) and (i < args.max_num_log_image):
                 # log images when we use reference_model
-                table.add_data(wandb.Image(orig_image_no_w), w_no_sim, wandb.Image(orig_image_w), w_sim, wandb.Image(reversed_image_no_w), wandb.Image(reversed_image_w), current_prompt, no_w_metric, w_metric)
+                table.add_data(wandb.Image(orig_image_no_w), w_no_sim, wandb.Image(orig_image_w), w_sim, wandb.Image(image_ft_no_w), wandb.Image(image_ft_w), current_prompt, no_w_metric, w_metric)
             else:
-                table.add_data(None, w_no_sim, None, w_sim, wandb.Image(reversed_image_no_w), wandb.Image(reversed_image_w), current_prompt, no_w_metric, w_metric)
+                table.add_data(None, w_no_sim, None, w_sim, wandb.Image(image_ft_no_w), wandb.Image(image_ft_w), current_prompt, no_w_metric, w_metric)
 
             clip_scores.append(w_no_sim)
             clip_scores_w.append(w_sim)
@@ -285,11 +283,9 @@ def main(args):
 
     if args.with_tracking:
         wandb.log({'Table': table})
-        wandb.log({'w_metric_mean' : mean(w_metrics), 'w_metric_std' : stdev(w_metrics),
-                   'w_metric_min' : min(w_metrics), 'w_metric_max' : max(w_metrics),
-                   'clip_score_mean': mean(clip_scores), 'clip_score_std': stdev(clip_scores),
+        wandb.log({'clip_score_mean': mean(clip_scores), 'clip_score_std': stdev(clip_scores),
                    'w_clip_score_mean': mean(clip_scores_w), 'w_clip_score_std': stdev(clip_scores_w),
-                   'auc': auc, 'acc':acc, 'TPR@1%FPR': low})
+                   'auc': auc, 'acc':acc, 'TPR@1%FPR': low, 'no_w_metrics mean' : np.mean(no_w_metrics), 'w_metrics mean' : np.mean(w_metrics)})
         wandb.finish()
     
     print(f'clip_score_mean: {mean(clip_scores)}')

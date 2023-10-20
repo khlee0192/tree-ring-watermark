@@ -14,6 +14,8 @@ from diffusers.pipelines.stable_diffusion.safety_checker import \
     StableDiffusionSafetyChecker
 from diffusers.schedulers import DDIMScheduler,PNDMScheduler, LMSDiscreteScheduler
 
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 from modified_stable_diffusion import ModifiedStableDiffusionPipeline
 
 ### credit to: https://github.com/cccntu/efficient-prompt-to-prompt
@@ -304,7 +306,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                     if (inverse_opt):
                         #torch.set_grad_enabled(True)
                         if (inv_order == 2 and i == 0):
-                            latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale)
+                            latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
+                                                                 step_size=1, scheduler=True, factor=0.5, patience=20)
                         else:
                             latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale)
                         #torch.set_grad_enabled(False)
@@ -347,7 +350,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                                 
                                 # Line 6 ~ 10
                                 if inverse_opt:
-                                    y = self.fixedpoint_correction(y, s, t, y_t, order=inv_order, r=r, text_embeddings=text_embeddings, guidance_scale=guidance_scale)
+                                    y = self.fixedpoint_correction(y, s, t, y_t, order=inv_order, r=r, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
+                                                                   step_size=0.5, scheduler=True, factor=0.5, patience=20)
                             
                             # Line 12 ~18
                             t = prev_timestep
@@ -384,7 +388,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                             # Line 13 ~ 17
                             if inverse_opt:
                                 latents = self.fixedpoint_correction(latents, s, t, x_t, order=inv_order, r=r,
-                                                                  model_s_output=model_s_output, model_r_output=model_r_output, text_embeddings=text_embeddings, guidance_scale=guidance_scale)
+                                                                    model_s_output=model_s_output, model_r_output=model_r_output, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
+                                                                    step_size=0.5, scheduler=True, factor=0.5, patience=20)
                             
                         # Line 19 ~
                         elif (i + 1 == len(timesteps_tensor)):
@@ -413,7 +418,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                             
                             # Line 20 ~ 23
                             if (inverse_opt):
-                                latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale)     
+                                latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
+                                                                     step_size=0.5, scheduler=True, factor=0.5, patience=20)     
                         else:
                             raise Exception("Index Error!")
                 else:
@@ -553,14 +559,17 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         else:
             raise NotImplementedError
     """
-    
     @torch.inference_mode()
-    def fixedpoint_correction(self, x, s, t, x_t, r=None, order=1, n_iter=100, n_iter_2=200, step_size=0.1, th=1e-4, 
-                                model_s_output=None, model_r_output=None, text_embeddings=None, guidance_scale=3.0):
+    def fixedpoint_correction(self, x, s, t, x_t, r=None, order=1, n_iter=300, step_size=0.25, th=1e-3, 
+                                model_s_output=None, model_r_output=None, text_embeddings=None, guidance_scale=3.0, 
+                                scheduler=False, factor=0.5, patience=20):
         # 얘는 unet input 이 t 면 convert_model_output 도 t 여야 함.
         do_classifier_free_guidance = guidance_scale > 1.0
         if order==1:
             input = x.clone()
+
+            if scheduler:
+                step_scheduler = StepScheduler(current_lr=step_size, factor=factor, patience=patience, verbose=True)
 
             for i in range(n_iter):
                 # expand the latents if we are doing classifier free guidance
@@ -588,12 +597,18 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 #    print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
 
                 input = input - step_size * (x_t_pred- x_t) # forward step method
-            
+                
+                if scheduler:
+                    step_size = step_scheduler.step(loss)
+
             return input        
         
         elif order==2:
             assert r is not None
             input = x.clone()
+
+            if scheduler:
+                step_scheduler = StepScheduler(current_lr=step_size, factor=factor, patience=patience, verbose=True)
 
             # expand the latents if we are doing classifier free guidance
             x_t_input = (
@@ -613,7 +628,7 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
             r0 = h_0 / h
             phi_1 = torch.expm1(-h)
             
-            for i in range(n_iter_2):
+            for i in range(n_iter):
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = (
                     torch.cat([input] * 2) if do_classifier_free_guidance else input
@@ -643,11 +658,15 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 if loss.item() < th:
                     break                
                 # if i%10 == 0 :
-                #    print(f"Fixed, 2st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
-                input = input - step_size * (x_t_pred- x_t)  # forward step method              
+                #    print(f"Fixed, 2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                input = input - step_size * (x_t_pred- x_t)  # forward step method
+
+                if scheduler:
+                    step_size = step_scheduler.step(loss)
             return input
         else:
             raise NotImplementedError
+        
 
     def edcorrector(self, x):
         """
@@ -669,69 +688,23 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         # Loss를 계산할 때 무언가를 가져와야 한다
         loss_function = torch.nn.MSELoss(reduction='sum')
 
+        ## Adjusting Adam
         optimizer = torch.optim.Adam([z], lr=0.12)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=300)
 
-        for i in self.progress_bar(range(100)):
+
+        for i in self.progress_bar(range(300)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
             
-            # if i%100==0:
-            #     print(f"ed, Iteration {i}, Loss: {loss.item()}")
-            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
-            #scheduler.step()
 
         return z
-    
-    def edcorrector_tuning(self, x, lr=0.1, n_iter=100):
-        """
-        edcorrector calculates latents z of the image x by solving optimization problem ||E(x)-z||,
-        not by directly encoding with VAE encoder. "Decoder inversion"
-
-        INPUT
-        x : image data (1, 3, 512, 512) -> given data
-        OUTPUT
-        z : modified latent data (1, 4, 64, 64)
-
-        Goal : minimize norm(e(x)-z), working on adding regularizer
-        """
-        input = x.clone().float()
-
-        z = self.get_image_latents(x).clone().float() # initial z
-        z.requires_grad_(True)
-
-        # Loss를 계산할 때 무언가를 가져와야 한다
-        loss_function = torch.nn.MSELoss(reduction='sum')
-
-        optimizer = torch.optim.Adam([z], lr=lr)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=n_iter)
-        #lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, 0.5)
-
-        for i in self.progress_bar(range(n_iter)):
-            x_pred = self.decode_image_for_gradient_float(z)
-
-            #if, without regularizer
-            loss = loss_function(x_pred, input)
-            
-            if i%1==0:
-                print(f"ed, Iteration {i}, Loss: {loss.item()}")
-            
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            lr_scheduler.step()
-
-            if i==0:
-                initial_loss = loss.item()
-            #scheduler.step()
-        final_loss = loss.item()
-        return z, initial_loss, final_loss
     
     @torch.inference_mode()
     def decode_image(self, latents: torch.FloatTensor, **kwargs):
@@ -764,4 +737,81 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
             return noise_pred
         else:
-            return model_output             
+            return model_output            
+        
+
+class StepScheduler(ReduceLROnPlateau):
+    def __init__(self, mode='min', current_lr=0, factor=0.1, patience=10,
+                 threshold=1e-4, threshold_mode='rel', cooldown=0,
+                 min_lr=0, eps=1e-8, verbose=False):
+        if factor >= 1.0:
+            raise ValueError('Factor should be < 1.0.')
+        self.factor = factor
+        if current_lr == 0:
+            raise ValueError('Step size cannot be 0')
+
+        # if isinstance(min_lr, (list, tuple)):
+        #     if len(min_lr) != len(optimizer.param_groups):
+        #         raise ValueError("expected {} min_lrs, got {}".format(
+        #             len(optimizer.param_groups), len(min_lr)))
+        #     self.min_lrs = list(min_lr)
+        # else:
+        #     self.min_lrs = [min_lr] * len(optimizer.param_groups)
+
+        self.min_lr = min_lr
+        self.current_lr = current_lr
+        self.patience = patience
+        self.verbose = verbose
+        self.cooldown = cooldown
+        self.cooldown_counter = 0
+        self.mode = mode
+        self.threshold = threshold
+        self.threshold_mode = threshold_mode
+        self.best = None
+        self.num_bad_epochs = None
+        self.mode_worse = None  # the worse value for the chosen mode
+        self.eps = eps
+        self.last_epoch = 0
+        self._init_is_better(mode=mode, threshold=threshold,
+                             threshold_mode=threshold_mode)
+        self._reset()
+
+    def step(self, metrics, epoch=None):
+        # convert `metrics` to float, in case it's a zero-dim Tensor
+        current = float(metrics)
+        if epoch is None:
+            epoch = self.last_epoch + 1
+        else:
+            import warnings
+            warnings.warn("EPOCH_DEPRECATION_WARNING", UserWarning)
+        self.last_epoch = epoch
+
+        if self.is_better(current, self.best):
+            self.best = current
+            self.num_bad_epochs = 0
+        else:
+            self.num_bad_epochs += 1
+
+        if self.in_cooldown:
+            self.cooldown_counter -= 1
+            self.num_bad_epochs = 0  # ignore any bad epochs in cooldown
+
+        if self.num_bad_epochs > self.patience:
+            self._reduce_lr(epoch)
+            self.cooldown_counter = self.cooldown
+            self.num_bad_epochs = 0
+
+        #self._last_lr = [group['lr'] for group in self.optimizer.param_groups]
+        return self.current_lr
+
+    def _reduce_lr(self, epoch):
+        
+        old_lr = self.current_lr
+        new_lr = max(self.current_lr * self.factor, self.min_lr)
+        if old_lr - new_lr > self.eps:
+            self.current_lr = new_lr
+            if self.verbose:
+                epoch_str = ("%.2f" if isinstance(epoch, float) else
+                            "%.5d") % epoch
+                # print('Epoch {}: reducing learning rate'
+                #         ' to {:.4e}.'.format(epoch_str,new_lr))

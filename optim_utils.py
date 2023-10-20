@@ -229,7 +229,7 @@ def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args):
 
     init_latents_w = torch.fft.ifft2(torch.fft.ifftshift(init_latents_w_fft, dim=(-1, -2))).real
 
-    return init_latents_w
+    return init_latents_w, init_latents_w_fft
 
 
 def eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args):
@@ -251,3 +251,23 @@ def eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask,
         NotImplementedError(f'w_measurement: {args.w_measurement}')
 
     return no_w_metric, w_metric
+
+def eval_watermark_modified(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args):
+    if 'complex' in args.w_measurement:
+        reversed_latents_no_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_no_w), dim=(-1, -2))
+        reversed_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w), dim=(-1, -2))
+        target_patch = gt_patch
+    elif 'seed' in args.w_measurement:
+        reversed_latents_no_w_fft = reversed_latents_no_w
+        reversed_latents_w_fft = reversed_latents_w
+        target_patch = gt_patch
+    else:
+        NotImplementedError(f'w_measurement: {args.w_measurement}')
+
+    if 'l1' in args.w_measurement:
+        no_w_metric = torch.abs(reversed_latents_no_w_fft[watermarking_mask] - target_patch[watermarking_mask]).mean().item()
+        w_metric = torch.abs(reversed_latents_w_fft[watermarking_mask] - target_patch[watermarking_mask]).mean().item()
+    else:
+        NotImplementedError(f'w_measurement: {args.w_measurement}')
+
+    return no_w_metric, w_metric, reversed_latents_no_w_fft, reversed_latents_w_fft
