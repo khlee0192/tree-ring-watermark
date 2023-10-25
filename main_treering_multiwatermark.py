@@ -21,10 +21,10 @@ def main(args):
     table = None
     args.with_tracking=True
     
-    wandb.init(entity='khlee0192', project='Updated_Crosscheck', name=args.run_name, tags=['tree_ring_watermark'])
+    wandb.init(entity='khlee0192', project='New-multiwatermark', name=args.run_name, tags=['tree_ring_watermark'])
     wandb.config.update(args)
     #table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'gen_w2', 'reverse_no_w', 'reverse_w1', 'reverse_w2', 'prompt', 'no_w_metric', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
-    table = wandb.Table(columns=['prompt', 'no_w_metric1', 'no_w_metric2', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
+    #table = wandb.Table(columns=['prompt', 'no_w_metric1', 'no_w_metric2', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
 
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -71,20 +71,12 @@ def main(args):
     text_embeddings = pipe.get_text_embedding(tester_prompt)
 
 
-    # ground-truth patch
-    gt_patch1 = get_watermarking_pattern(pipe, args, device, option=1)
+    # Create patchs
+    gt_patches = []
+    for i in range(args.target_num):
+        gt_patches.append(get_watermarking_pattern(pipe, args, device, option=i))
 
-    # set new watermark
-    args2 = args
-    gt_patch2 = get_watermarking_pattern(pipe, args2, device, option=2)
-
-    results = []
-    no_w_metrics1 = []
-    no_w_metrics2 = []
-    w_metrics11 = []
-    w_metrics22 = []
-    w_metrics12 = []
-    w_metrics21 = []
+    w_metrics = [[] for _ in range(args.target_num)]
 
     image_dir = "./images/"+ args.run_name +"/"
     if not os.path.exists(image_dir):
@@ -94,8 +86,8 @@ def main(args):
     for i in tqdm(range(args.start, args.end)):
         print(f"Image number : {ind+1}")
 
+        # Plot part
         plot_name = image_dir + str(ind+1) + ".png"
-        plt.figure(figsize=(24, 12))
 
         if ind == args.length:
             break
@@ -111,122 +103,68 @@ def main(args):
         ### generation
         # generation without watermarking
         set_random_seed(seed)
-        init_latents_no_w1 = pipe.get_random_latents()
-        init_latents_w1 = copy.deepcopy(init_latents_no_w1)
-        init_latents_no_w2 = pipe.get_random_latents()
-        init_latents_w2 = copy.deepcopy(init_latents_no_w2)
+        init_latents_no_w = pipe.get_random_latents()
+        init_latents_w = copy.deepcopy(init_latents_no_w)
 
         # First generation
-        outputs_no_w1, latents_no_w1 = pipe(
+        outputs_no_w, latents_no_w = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.num_inference_steps,
             height=args.image_length,
             width=args.image_length,
-            latents=init_latents_no_w1,
+            latents=init_latents_no_w,
             )
-        orig_image_no_w1 = outputs_no_w1.images[0]
-        outputs_no_w2, latents_no_w2 = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=init_latents_no_w2,
-            )
-        orig_image_no_w2 = outputs_no_w2.images[0]
-
-        plt.subplot(2,4,1)
-        plt.imshow(orig_image_no_w1)
-        plt.title("Image of A")
-
-        plt.subplot(2,4,5)
-        plt.imshow(orig_image_no_w2)
-        plt.title("Image of B")
+        orig_image_no_w = outputs_no_w.images[0]
 
         # get watermarking mask
-        watermarking_mask1 = get_watermarking_mask(init_latents_no_w1, args, device)
-        watermarking_mask2 = get_watermarking_mask(init_latents_no_w2, args2, device)
+        watermarking_masks = []
+        for i in range(args.target_num):
+            watermarking_masks.append(get_watermarking_mask(init_latents_no_w, args, device, option=i))
 
         # inject watermark
-        init_latents_w1, fft1 = inject_watermark(init_latents_w1, watermarking_mask1, gt_patch1, args)
-        init_latents_w2, fft2 = inject_watermark(init_latents_w2, watermarking_mask2, gt_patch2, args2)
-
-        plt.subplot(2,4,2)
-        plt.pcolor(torch.abs(fft1)[0][args.w_channel][24:39, 25:40].detach().cpu())
-        plt.title("Watermark of A")
-        
-        plt.subplot(2,4,6)
-        plt.pcolor(torch.abs(fft2)[0][args.w_channel][24:39, 25:40].detach().cpu())
-        plt.title("Watermark of B")
-
-        """ look at this to make plots
-        plt.imshow(torch.abs(fft1)[0][args.w_channel].detach().cpu())
-        plt.figure()
-        plt.imshow(torch.abs(fft2)[0][args.w_channel].detach().cpu())
-        """
+        init_latents_ws = []
+        ffts = []
+        for i in range(args.target_num):
+            temp_init_latents_w, temp_fft = inject_watermark(init_latents_w, watermarking_masks[i], gt_patches[i], args)
+            init_latents_ws.append(temp_init_latents_w)
+            ffts.append(temp_fft)
 
         # Create image
-        outputs_w1, latents_w1 = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=init_latents_w1,
+        orig_image_ws = []
+        for i in range(args.target_num):
+            temp_outputs_w, temp_latents_w = pipe(
+                current_prompt,
+                num_images_per_prompt=args.num_images,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.num_inference_steps,
+                height=args.image_length,
+                width=args.image_length,
+                latents=init_latents_w,
             )
-        orig_image_w1 = outputs_w1.images[0]
-
-        outputs_w2, latents_w2 = pipe(
-            current_prompt,
-            num_images_per_prompt=args2.num_images,
-            guidance_scale=args2.guidance_scale,
-            num_inference_steps=args2.num_inference_steps,
-            height=args2.image_length,
-            width=args2.image_length,
-            latents=init_latents_w2,
-            )
-        orig_image_w2 = outputs_w2.images[0]
-
-        plt.subplot(2,4,3)
-        plt.imshow(orig_image_w1)
-        plt.title("Watermarked image of A")
-
-        plt.subplot(2,4,7)
-        plt.imshow(orig_image_w2)
-        plt.title("Watermarked image of B")
+            orig_image_ws.append(temp_outputs_w.images[0])
 
         ### test watermark
         # distortion
-        orig_image_no_w_auged1, orig_image_w_auged1 = image_distortion(orig_image_no_w1, orig_image_w1, seed, args)
-        orig_image_no_w_auged2, orig_image_w_auged2 = image_distortion(orig_image_no_w2, orig_image_w2, seed, args2)
+        orig_image_no_w_auged = image_distortion_single(orig_image_no_w, seed, args)
+        orig_image_w_augeds = []
+        for i in range(args.target_num):
+            orig_image_w_augeds.append(image_distortion_single(orig_image_ws[i], seed, args))
 
+        ## SECTION : No Watermark
         # reverse img without watermarking (NO watermark)
-        img_no_w1 = transform_img(orig_image_no_w_auged1).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        img_no_w2 = transform_img(orig_image_no_w_auged2).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
 
         # When we are only interested in w_metric
         if args.edcorrector:
-            image_latents_no_w1 = pipe.edcorrector(img_no_w1)
-            image_latents_no_w2 = pipe.edcorrector(img_no_w2)
+            image_latents_no_w = pipe.edcorrector(img_no_w)
         else:    
-            image_latents_no_w1 = pipe.get_image_latents(img_no_w1, sample=False)
-            image_latents_no_w2 = pipe.get_image_latents(img_no_w2, sample=False)
+            image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
         # forward_diffusion -> inversion
-        reversed_latents_no_w1 = pipe.forward_diffusion(
-            latents=image_latents_no_w1,
-            text_embeddings=text_embeddings,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order
-        )
-        reversed_latents_no_w2 = pipe.forward_diffusion(
-            latents=image_latents_no_w2,
+        reversed_latents_no_w = pipe.forward_diffusion(
+            latents=image_latents_no_w,
             text_embeddings=text_embeddings,
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.test_num_inference_steps,
@@ -234,65 +172,42 @@ def main(args):
             inv_order=args.inv_order
         )
 
+        ## SECTION : With Watermark, repeated with args.target_num times
         # reverse img with watermarking (With watermark, first)
-        img_w1 = transform_img(orig_image_w_auged1).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_ws = []
+        image_latents_ws = []
+        reversed_latents_ws = []
+        for i in range(args.target_num):
+            img_w = transform_img(orig_image_w_augeds[i]).unsqueeze(0).to(text_embeddings.dtype).to(device)
 
-        if args.edcorrector:
-            image_latents_w1 = pipe.edcorrector(img_w1)
-        else:    
-            image_latents_w1 = pipe.get_image_latents(img_w1, sample=False)
+            if args.edcorrector:
+                image_latents_w = pipe.edcorrector(img_w)
+            else:    
+                image_latents_w = pipe.get_image_latents(img_w, sample=False)
         
-        # forward_diffusion -> inversion
-        reversed_latents_w1 = pipe.forward_diffusion(
-            latents=image_latents_w1,
-            text_embeddings=text_embeddings,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order,
-        )
-        
-        # reverse img with watermarking (With watermark, second)
-        img_w2 = transform_img(orig_image_w_auged2).unsqueeze(0).to(text_embeddings.dtype).to(device)
+            # forward_diffusion -> inversion
+            reversed_latents_w = pipe.forward_diffusion(
+                latents=image_latents_w,
+                text_embeddings=text_embeddings,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order,
+            )
+            img_ws.append(img_w)
+            image_latents_ws.append(image_latents_w)
+            reversed_latents_ws.append(reversed_latents_w)
 
-        if args.edcorrector:
-            image_latents_w2 = pipe.edcorrector(img_w2)
-        else:    
-            image_latents_w2 = pipe.get_image_latents(img_w2, sample=False)
-        
-        # forward_diffusion -> inversion
-        reversed_latents_w2 = pipe.forward_diffusion(
-            latents=image_latents_w2,
-            text_embeddings=text_embeddings,
-            guidance_scale=args2.guidance_scale,
-            num_inference_steps=args2.test_num_inference_steps,
-            inverse_opt=not args2.inv_naive,
-            inv_order=args2.inv_order,
-        )
+        ## Evaluation Period
 
-        # reversed_latents_w1_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w1), dim=(-1, -2))
-        # reversed_latents_w2_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w2), dim=(-1, -2))
+        # First will check no_w_metric
+        no_w_metric, _ = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_masks[0], gt_patches[0])
+        # Second check w_metric of n*n cases
+        for i in range(args.target_num): # i is index of original watermark
+            for j in range(args.target_num): # j is index of checking watermark
+                w_metrics[i][j], _ = eval_watermark(reversed_latents_no_w, reversed_latents_w[i], watermarking_masks[j], gt_patches[j])
 
-        # eval
-        # A checks with watermarked image from A
-        no_w_metric1, w_metric11, _, reversed_latents_w1_fft = eval_watermark_modified(reversed_latents_no_w1, reversed_latents_w1, watermarking_mask1, gt_patch1, args)
-        # B checks with watermarked image from B
-        no_w_metric2, w_metric22, _, reversed_latents_w2_fft = eval_watermark_modified(reversed_latents_no_w2, reversed_latents_w2, watermarking_mask2, gt_patch2, args2)
-        # A checks with wateermarked image from B : watermark A, image B
-        _, w_metric12 = eval_watermark(reversed_latents_no_w2, reversed_latents_w2, watermarking_mask1, gt_patch1, args)
-        # B checks with wateermarked image from A : watermark B, image A
-        _, w_metric21 = eval_watermark(reversed_latents_no_w1, reversed_latents_w1, watermarking_mask2, gt_patch2, args2)
-
-        plt.subplot(2,4,4)
-        plt.pcolor(torch.abs(reversed_latents_w1_fft)[0][args.w_channel][24:39, 25:40].detach().cpu())
-        plt.colorbar()
-        plt.title("Reversed noise(freq) of A")
-        
-        plt.subplot(2,4,8)
-        plt.pcolor(torch.abs(reversed_latents_w2_fft)[0][args.w_channel][24:39, 25:40].detach().cpu())
-        plt.colorbar()
-        plt.title("Reversed noise(freq) of A")
-
+        """
         results.append({
             'no_w1_metric': no_w_metric1,
             'no_w2_metric': no_w_metric2,
@@ -318,10 +233,23 @@ def main(args):
                 table.add_data(current_prompt,
                                no_w_metric1, no_w_metric2, w_metric11, w_metric22, w_metric12, w_metric21,
                             )
+        """
 
-        plt.tight_layout()
-        plt.savefig(plot_name)
+        plt.figure()
+        plt.imshow(orig_image_no_w)
+        plt.show()
 
+        plt.figure(figsize=(6*args.target_num, 12))
+        for i in range(0, args.target_num):
+            img_title = "Image generated with watermark of " + str("A"+i)
+            noise_title = "Noise reconstructed with watermark of " + str("A"+i)
+            plt.subplot(2, args.target_num, 2*i)
+            plt.imshow(orig_image_ws[i])
+            plt.title(img_title)
+            plt.subplot(2, args.target_num, 2*i+1)
+            plt.imshow(torch.abs(ffts[i])[0][args.w_channel].detach().cpu())
+            plt.title(img_title)
+        plt.show()
         ind = ind + 1
 
     if args.with_tracking:
@@ -362,6 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--start', default=0, type=int)
     parser.add_argument('--end', default=1000, type=int)
     parser.add_argument('--length', default=2, type=int)
+    parser.add_argument('--target_num', default=1, type=int)
     parser.add_argument('--image_length', default=512, type=int)
     parser.add_argument('--model_id', default='stabilityai/stable-diffusion-2-1-base')
     parser.add_argument('--with_tracking', action='store_true')

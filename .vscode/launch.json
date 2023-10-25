@@ -15,6 +15,7 @@
                 "--start", "88",
                 "--end", "1000",
                 "--length", "1",
+                "--target_num", "4",
                 "--reference_model", "ViT-g-14",
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
                 "--with_tracking",
@@ -26,7 +27,7 @@
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",
                 //experiment
-                "--run_name", "teston1jpw",
+                "--run_name", "test_with_multiwatermark",
                 "--solver_order", "2",
                 "--num_inference_steps", "10",
                 //"--exact_inversion",
