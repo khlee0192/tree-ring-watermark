@@ -174,7 +174,7 @@ def get_watermarking_mask(init_latents_w, args, device):
     return watermarking_mask
 
 
-def get_watermarking_pattern(pipe, args, device, shape=None):
+def get_watermarking_pattern(pipe, args, device, shape=None, option=None):
     set_random_seed(args.w_seed)
     if shape is not None:
         gt_init = torch.randn(*shape, device=device)
@@ -207,12 +207,24 @@ def get_watermarking_pattern(pipe, args, device, shape=None):
         gt_patch = torch.fft.fftshift(torch.fft.fft2(gt_init), dim=(-1, -2))
 
         gt_patch_tmp = copy.deepcopy(gt_patch)
+        keys = torch.Tensor(
+            [[1.2, 0.5, 1.2, 1.0, 1.5, 1.5],
+            [1.2, 1.5, 1.2, 1.5, 1.5, 1.5],
+            [1.0, 1.5, 1.2, 1.0, 1.0, 1.5],
+            [1.4, 1.1, 1.8, 0.6, 1.5, 1.5],
+            ]
+        )
+        const = 100
+        
         for i in range(args.w_radius, 0, -1):
             tmp_mask = circle_mask(gt_init.shape[-1], r=i)
             tmp_mask = torch.tensor(tmp_mask).to(device)
             
             for j in range(gt_patch.shape[1]):
-                gt_patch[:, j, tmp_mask] = gt_patch_tmp[0, j, 0, i].item()
+                if option is None:
+                    gt_patch[:, j, tmp_mask] = gt_patch_tmp[0, j, 0, i].item()
+                else:
+                    gt_patch[:, j, tmp_mask] = torch.complex(const*keys[option][i-1], torch.Tensor([0]))
 
     return gt_patch
 

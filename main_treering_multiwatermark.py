@@ -1,3 +1,4 @@
+import sys, os
 import argparse
 import wandb
 import copy
@@ -16,75 +17,14 @@ from optim_utils import *
 from io_utils import *
 import torch
 
-
-def compare_latents(z, z_comp):
-    """
-    parameters
-    z : latent variables after calculation
-    z_comp : latent vatiables for comparison
-
-    returns norm(z-z_comp)/norm(z_comp)
-    """
-    diff = z - z_comp
-    return torch.norm(diff)/torch.norm(z_comp)
-
-def plot_compare(latent, modified_latent, pipe, title):
-    # Latent, pipe -> draw image, maybe good to make clean code
-        # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
-    img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
-    img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
-    img_w_correction = (pipe.decode_image(modified_latent)/2+0.5).clamp(0, 1) # modified
-
-    plt.figure()
-    plt.subplot(1,3,1)
-    plt.imshow(to_pil_image(img[0]))
-    plt.title("z")
-    plt.subplot(1,3,2)
-    plt.imshow(to_pil_image(img_wo_correction[0]))
-    plt.title("E(D(z))")
-    plt.subplot(1,3,3)
-    plt.imshow(to_pil_image(img_w_correction[0]))
-    plt.title("E*(D(z))")
-    plt.savefig(title)
-    #plt.show()
-
-def plot_compare_errormap(latent, modified_latent, pipe, title):
-    # Latent, pipe -> draw image, maybe good to make clean code
-        # check on image_latents_w, pipe.get_image_latents(pipe.decode_image(image_latents_w)), image_latents_w_modified
-    img = (pipe.decode_image(latent)/2+0.5).clamp(0, 1)
-    img_wo_correction = (pipe.decode_image(pipe.get_image_latents(pipe.decode_image(latent)))/2+0.5).clamp(0, 1)
-    img_w_correction = (pipe.decode_image(modified_latent)/2+0.5).clamp(0, 1)
-
-    img = img[0]
-    error1 = (img_wo_correction[0]-img)
-    error1norm = torch.sqrt(torch.abs(error1[0])**2 + torch.abs(error1[1])**2 + torch.abs(error1[2])**2)
-    error1norm = torch.flip(error1norm, [0])
-    error2 = (img_w_correction[0]-img)
-    error2norm = torch.sqrt(torch.abs(error2[0])**2 + torch.abs(error2[1])**2 + torch.abs(error2[2])**2)
-    error2norm = torch.flip(error2norm, [0])
-    plt.figure()
-    plt.subplot(1,3,1)
-    plt.imshow(rgb_to_grayscale(to_pil_image(img[0])))
-    plt.title("z")
-    plt.subplot(1,3,2)
-    plt.pcolor(error1norm.cpu())
-    plt.title("E(D(z))")
-    plt.subplot(1,3,3)
-    plt.pcolor(error2norm.cpu())
-    plt.title("E*(D(z))")
-    plt.colorbar()
-    #plt.savefig(title)
-    plt.show()
-
-
 def main(args):
     table = None
     args.with_tracking=True
     
-    wandb.init(entity='khlee0192', project='Crosscheck', name=args.run_name, tags=['tree_ring_watermark'])
+    wandb.init(entity='khlee0192', project='Updated_Crosscheck', name=args.run_name, tags=['tree_ring_watermark'])
     wandb.config.update(args)
-    #table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'w_clip_score', 'reverse_no_w', 'reverse_w', 'prompt', 'no_w_metric', 'w_metric'])
-    table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'gen_w2', 'reverse_no_w', 'reverse_w1', 'reverse_w2', 'prompt', 'no_w_metric', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
+    #table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'gen_w2', 'reverse_no_w', 'reverse_w1', 'reverse_w2', 'prompt', 'no_w_metric', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
+    table = wandb.Table(columns=['prompt', 'no_w_metric1', 'no_w_metric2', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
 
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -96,7 +36,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        #steps_offset = 1, #CHECK
+        steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -132,27 +72,33 @@ def main(args):
 
 
     # ground-truth patch
-    gt_patch1 = get_watermarking_pattern(pipe, args, device)
+    gt_patch1 = get_watermarking_pattern(pipe, args, device, option=1)
 
     # set new watermark
     args2 = args
-    args2.w_radius = 15
-    gt_patch2 = get_watermarking_pattern(pipe, args2, device)
+    gt_patch2 = get_watermarking_pattern(pipe, args2, device, option=2)
 
     results = []
-    clip_scores = []
-    clip_scores_w = []
-    no_w_metrics = []
+    no_w_metrics1 = []
+    no_w_metrics2 = []
     w_metrics11 = []
     w_metrics22 = []
     w_metrics12 = []
     w_metrics21 = []
 
+    image_dir = "./images/"+ args.run_name +"/"
+    if not os.path.exists(image_dir):
+        os.makedirs(image_dir)
+
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         print(f"Image number : {ind+1}")
+
+        plot_name = image_dir + str(ind+1) + ".png"
+        plt.figure(figsize=(24, 12))
+
         if ind == args.length:
-             break
+            break
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]
@@ -165,32 +111,62 @@ def main(args):
         ### generation
         # generation without watermarking
         set_random_seed(seed)
-        init_latents_no_w = pipe.get_random_latents()
-        outputs_no_w, latents_no_w = pipe(
+        init_latents_no_w1 = pipe.get_random_latents()
+        init_latents_w1 = copy.deepcopy(init_latents_no_w1)
+        init_latents_no_w2 = pipe.get_random_latents()
+        init_latents_w2 = copy.deepcopy(init_latents_no_w2)
+
+        # First generation
+        outputs_no_w1, latents_no_w1 = pipe(
             current_prompt,
             num_images_per_prompt=args.num_images,
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.num_inference_steps,
             height=args.image_length,
             width=args.image_length,
-            latents=init_latents_no_w,
+            latents=init_latents_no_w1,
             )
-        orig_image_no_w = outputs_no_w.images[0]
-        
-        # generation with watermarking
-        if init_latents_no_w is None:
-            set_random_seed(seed)
-            init_latents_w = pipe.get_random_latents()
-        else:
-            init_latents_w = copy.deepcopy(init_latents_no_w)
+        orig_image_no_w1 = outputs_no_w1.images[0]
+        outputs_no_w2, latents_no_w2 = pipe(
+            current_prompt,
+            num_images_per_prompt=args.num_images,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.num_inference_steps,
+            height=args.image_length,
+            width=args.image_length,
+            latents=init_latents_no_w2,
+            )
+        orig_image_no_w2 = outputs_no_w2.images[0]
+
+        plt.subplot(2,4,1)
+        plt.imshow(orig_image_no_w1)
+        plt.title("Image of A")
+
+        plt.subplot(2,4,5)
+        plt.imshow(orig_image_no_w2)
+        plt.title("Image of B")
 
         # get watermarking mask
-        watermarking_mask1 = get_watermarking_mask(init_latents_w, args, device)
-        watermarking_mask2 = get_watermarking_mask(init_latents_w, args2, device)
+        watermarking_mask1 = get_watermarking_mask(init_latents_no_w1, args, device)
+        watermarking_mask2 = get_watermarking_mask(init_latents_no_w2, args2, device)
 
         # inject watermark
-        init_latents_w1, _ = inject_watermark(init_latents_w, watermarking_mask1, gt_patch1, args)
-        init_latents_w2, _ = inject_watermark(init_latents_w, watermarking_mask2, gt_patch2, args2)
+        init_latents_w1, fft1 = inject_watermark(init_latents_w1, watermarking_mask1, gt_patch1, args)
+        init_latents_w2, fft2 = inject_watermark(init_latents_w2, watermarking_mask2, gt_patch2, args2)
+
+        plt.subplot(2,4,2)
+        plt.pcolor(torch.abs(fft1)[0][args.w_channel][24:39, 25:40].detach().cpu())
+        plt.title("Watermark of A")
+        
+        plt.subplot(2,4,6)
+        plt.pcolor(torch.abs(fft2)[0][args.w_channel][24:39, 25:40].detach().cpu())
+        plt.title("Watermark of B")
+
+        """ look at this to make plots
+        plt.imshow(torch.abs(fft1)[0][args.w_channel].detach().cpu())
+        plt.figure()
+        plt.imshow(torch.abs(fft2)[0][args.w_channel].detach().cpu())
+        """
 
         # Create image
         outputs_w1, latents_w1 = pipe(
@@ -215,31 +191,48 @@ def main(args):
             )
         orig_image_w2 = outputs_w2.images[0]
 
+        plt.subplot(2,4,3)
+        plt.imshow(orig_image_w1)
+        plt.title("Watermarked image of A")
+
+        plt.subplot(2,4,7)
+        plt.imshow(orig_image_w2)
+        plt.title("Watermarked image of B")
+
         ### test watermark
         # distortion
-        orig_image_no_w_auged, orig_image_w_auged1 = image_distortion(orig_image_no_w, orig_image_w1, seed, args)
-        orig_image_w_auged2 = image_distortion_single(orig_image_w2, seed, args2)
+        orig_image_no_w_auged1, orig_image_w_auged1 = image_distortion(orig_image_no_w1, orig_image_w1, seed, args)
+        orig_image_no_w_auged2, orig_image_w_auged2 = image_distortion(orig_image_no_w2, orig_image_w2, seed, args2)
 
         # reverse img without watermarking (NO watermark)
-        img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
-        
+        img_no_w1 = transform_img(orig_image_no_w_auged1).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_no_w2 = transform_img(orig_image_no_w_auged2).unsqueeze(0).to(text_embeddings.dtype).to(device)
+
         # When we are only interested in w_metric
         if args.edcorrector:
-            image_latents_no_w = pipe.edcorrector(img_no_w)
+            image_latents_no_w1 = pipe.edcorrector(img_no_w1)
+            image_latents_no_w2 = pipe.edcorrector(img_no_w2)
         else:    
-            image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
+            image_latents_no_w1 = pipe.get_image_latents(img_no_w1, sample=False)
+            image_latents_no_w2 = pipe.get_image_latents(img_no_w2, sample=False)
 
         # forward_diffusion -> inversion
-        reversed_latents_no_w = pipe.forward_diffusion(
-            latents=image_latents_no_w,
+        reversed_latents_no_w1 = pipe.forward_diffusion(
+            latents=image_latents_no_w1,
             text_embeddings=text_embeddings,
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.test_num_inference_steps,
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order
         )
-        
-        reversed_image_no_w = to_pil_image(((pipe.decode_image(reversed_latents_no_w)/2+0.5).clamp(0,1))[0])
+        reversed_latents_no_w2 = pipe.forward_diffusion(
+            latents=image_latents_no_w2,
+            text_embeddings=text_embeddings,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.test_num_inference_steps,
+            inverse_opt=not args.inv_naive,
+            inv_order=args.inv_order
+        )
 
         # reverse img with watermarking (With watermark, first)
         img_w1 = transform_img(orig_image_w_auged1).unsqueeze(0).to(text_embeddings.dtype).to(device)
@@ -258,7 +251,6 @@ def main(args):
             inverse_opt=not args.inv_naive,
             inv_order=args.inv_order,
         )
-        reversed_image_w1 = to_pil_image(((pipe.decode_image(reversed_latents_w1)/2+0.5).clamp(0,1))[0])
         
         # reverse img with watermarking (With watermark, second)
         img_w2 = transform_img(orig_image_w_auged2).unsqueeze(0).to(text_embeddings.dtype).to(device)
@@ -277,38 +269,41 @@ def main(args):
             inverse_opt=not args2.inv_naive,
             inv_order=args2.inv_order,
         )
-        reversed_image_w2 = to_pil_image(((pipe.decode_image(reversed_latents_w2)/2+0.5).clamp(0,1))[0])
 
+        # reversed_latents_w1_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w1), dim=(-1, -2))
+        # reversed_latents_w2_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w2), dim=(-1, -2))
 
         # eval
         # A checks with watermarked image from A
-        no_w_metric, w_metric11 = eval_watermark(reversed_latents_no_w, reversed_latents_w1, watermarking_mask1, gt_patch1, args)
+        no_w_metric1, w_metric11, _, reversed_latents_w1_fft = eval_watermark_modified(reversed_latents_no_w1, reversed_latents_w1, watermarking_mask1, gt_patch1, args)
         # B checks with watermarked image from B
-        _, w_metric22 = eval_watermark(reversed_latents_no_w, reversed_latents_w2, watermarking_mask2, gt_patch2, args2)
-        # A checks with wateermarked image from B
-        _, w_metric12 = eval_watermark(reversed_latents_no_w, reversed_latents_w2, watermarking_mask1, gt_patch1, args)
-        # B checks with wateermarked image from A
-        _, w_metric21 = eval_watermark(reversed_latents_no_w, reversed_latents_w1, watermarking_mask2, gt_patch2, args2)
+        no_w_metric2, w_metric22, _, reversed_latents_w2_fft = eval_watermark_modified(reversed_latents_no_w2, reversed_latents_w2, watermarking_mask2, gt_patch2, args2)
+        # A checks with wateermarked image from B : watermark A, image B
+        _, w_metric12 = eval_watermark(reversed_latents_no_w2, reversed_latents_w2, watermarking_mask1, gt_patch1, args)
+        # B checks with wateermarked image from A : watermark B, image A
+        _, w_metric21 = eval_watermark(reversed_latents_no_w1, reversed_latents_w1, watermarking_mask2, gt_patch2, args2)
 
-        """
-        if args.reference_model is not None:
-            sims = measure_similarity([orig_image_no_w, orig_image_w], current_prompt, ref_model, ref_clip_preprocess, ref_tokenizer, device)
-            w_no_sim = sims[0].item()
-            w_sim = sims[1].item()
-        else:
-            w_no_sim = 0
-            w_sim = 0
-        """
+        plt.subplot(2,4,4)
+        plt.pcolor(torch.abs(reversed_latents_w1_fft)[0][args.w_channel][24:39, 25:40].detach().cpu())
+        plt.colorbar()
+        plt.title("Reversed noise(freq) of A")
+        
+        plt.subplot(2,4,8)
+        plt.pcolor(torch.abs(reversed_latents_w2_fft)[0][args.w_channel][24:39, 25:40].detach().cpu())
+        plt.colorbar()
+        plt.title("Reversed noise(freq) of A")
 
         results.append({
-            'no_w_metric': no_w_metric,
+            'no_w1_metric': no_w_metric1,
+            'no_w2_metric': no_w_metric2,
             'w_metric11': w_metric11,
             'w_metric22': w_metric22,
             'w_metric12': w_metric12,
             'w_metric21': w_metric21,
         })
 
-        no_w_metrics.append(no_w_metric)
+        no_w_metrics1.append(no_w_metric1)
+        no_w_metrics2.append(no_w_metric2)
         w_metrics11.append(w_metric11)
         w_metrics22.append(w_metric22)
         w_metrics12.append(w_metric12)
@@ -316,18 +311,17 @@ def main(args):
 
         if args.with_tracking:
             if (args.reference_model is not None) and (i < args.max_num_log_image):
-                table.add_data(wandb.Image(orig_image_no_w), wandb.Image(orig_image_w1), wandb.Image(orig_image_w2), 
-                               wandb.Image(reversed_image_no_w), wandb.Image(reversed_image_w1), wandb.Image(reversed_image_w2),
-                               current_prompt,
-                               no_w_metric, w_metric11, w_metric22, w_metric12, w_metric21,
+                table.add_data(current_prompt,
+                               no_w_metric1, no_w_metric2, w_metric11, w_metric22, w_metric12, w_metric21,
                                )
             else:
-                table.add_data(None, None, None,
-                               None, None, None,
-                               current_prompt,
-                               no_w_metric, w_metric11, w_metric22, w_metric12, w_metric21,
-                               )
-        
+                table.add_data(current_prompt,
+                               no_w_metric1, no_w_metric2, w_metric11, w_metric22, w_metric12, w_metric21,
+                            )
+
+        plt.tight_layout()
+        plt.savefig(plot_name)
+
         ind = ind + 1
 
     if args.with_tracking:
@@ -385,7 +379,7 @@ if __name__ == '__main__':
     parser.add_argument('--w_channel', default=0, type=int)
     parser.add_argument('--w_pattern', default='rand')
     parser.add_argument('--w_mask_shape', default='circle')
-    parser.add_argument('--w_radius', default=10, type=int)
+    parser.add_argument('--w_radius', default=6, type=int)
     parser.add_argument('--w_measurement', default='l1_complex')
     parser.add_argument('--w_injection', default='complex')
     parser.add_argument('--w_pattern_const', default=0, type=float)

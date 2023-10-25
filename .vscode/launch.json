@@ -12,9 +12,9 @@
             "program": "${file}",
             "args": [
                 //fixed
-                "--start", "0",
+                "--start", "88",
                 "--end", "1000",
-                "--length", "10",
+                "--length", "1",
                 "--reference_model", "ViT-g-14",
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
                 "--with_tracking",
@@ -26,7 +26,7 @@
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",
                 //experiment
-                "--run_name", "TEST_crosscheck",
+                "--run_name", "teston1jpw",
                 "--solver_order", "2",
                 "--num_inference_steps", "10",
                 //"--exact_inversion",
