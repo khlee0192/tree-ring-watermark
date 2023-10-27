@@ -14,7 +14,7 @@
                 //fixed
                 "--start", "88",
                 "--end", "1000",
-                "--length", "1",
+                "--length", "2",
                 "--target_num", "4",
                 "--reference_model", "ViT-g-14",
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
@@ -27,13 +27,13 @@
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",
                 //experiment
-                "--run_name", "test_with_multiwatermark",
+                "--run_name", "just_run_realours_multiwatermark_findgoodwatermark1",
                 "--solver_order", "2",
                 "--num_inference_steps", "10",
                 //"--exact_inversion",
 
-                //"--edcorrector",
-                "--inv_naive",
+                "--edcorrector",
+                //"--inv_naive",
 
                 "--inv_order", "2",
                 "--test_num_inference_steps", "10",

@@ -76,18 +76,17 @@ def main(args):
     for i in range(args.target_num):
         gt_patches.append(get_watermarking_pattern(pipe, args, device, option=i))
 
-    w_metrics = [[] for _ in range(args.target_num)]
+    # image_dir = "./images/"+ args.run_name +"/"
+    # if not os.path.exists(image_dir):
+    #     os.makedirs(image_dir)
 
-    image_dir = "./images/"+ args.run_name +"/"
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir)
+    w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
         print(f"Image number : {ind+1}")
-
         # Plot part
-        plot_name = image_dir + str(ind+1) + ".png"
+        # plot_name = image_dir + str(ind+1) + ".png"
 
         if ind == args.length:
             break
@@ -121,7 +120,7 @@ def main(args):
         # get watermarking mask
         watermarking_masks = []
         for i in range(args.target_num):
-            watermarking_masks.append(get_watermarking_mask(init_latents_no_w, args, device, option=i))
+            watermarking_masks.append(get_watermarking_mask(init_latents_no_w, args, device))
 
         # inject watermark
         init_latents_ws = []
@@ -141,7 +140,7 @@ def main(args):
                 num_inference_steps=args.num_inference_steps,
                 height=args.image_length,
                 width=args.image_length,
-                latents=init_latents_w,
+                latents=init_latents_ws[i],
             )
             orig_image_ws.append(temp_outputs_w.images[0])
 
@@ -201,11 +200,12 @@ def main(args):
         ## Evaluation Period
 
         # First will check no_w_metric
-        no_w_metric, _ = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_masks[0], gt_patches[0])
+        no_w_metric, _ = eval_watermark(reversed_latents_no_w, reversed_latents_no_w, watermarking_masks[0], gt_patches[0], args)
         # Second check w_metric of n*n cases
         for i in range(args.target_num): # i is index of original watermark
             for j in range(args.target_num): # j is index of checking watermark
-                w_metrics[i][j], _ = eval_watermark(reversed_latents_no_w, reversed_latents_w[i], watermarking_masks[j], gt_patches[j])
+                no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_ws[i], watermarking_masks[j], gt_patches[j], args)
+                w_metrics[i][j].append(w_metric)
 
         """
         results.append({
@@ -235,27 +235,36 @@ def main(args):
                             )
         """
 
-        plt.figure()
-        plt.imshow(orig_image_no_w)
-        plt.show()
+        # plt.figure()
+        # plt.imshow(orig_image_no_w)
+        # plt.show()
 
-        plt.figure(figsize=(6*args.target_num, 12))
-        for i in range(0, args.target_num):
-            img_title = "Image generated with watermark of " + str("A"+i)
-            noise_title = "Noise reconstructed with watermark of " + str("A"+i)
-            plt.subplot(2, args.target_num, 2*i)
-            plt.imshow(orig_image_ws[i])
-            plt.title(img_title)
-            plt.subplot(2, args.target_num, 2*i+1)
-            plt.imshow(torch.abs(ffts[i])[0][args.w_channel].detach().cpu())
-            plt.title(img_title)
-        plt.show()
+        # plt.figure(figsize=(6*args.target_num, 12))
+        # for i in range(0, args.target_num):
+        #     img_title = "Image generated with watermark of " + "A" + str(i)
+        #     noise_title = "Noise reconstructed with watermark of " + "A" + str(i)
+        #     plt.subplot(2, args.target_num, 2*i+1)
+        #     plt.imshow(orig_image_ws[i])
+        #     plt.title(img_title)
+        #     plt.subplot(2, args.target_num, 2*i+2)
+        #     plt.imshow(torch.abs(ffts[i])[0][args.w_channel].detach().cpu())
+        #     plt.title(noise_title)
+        # plt.show()
+
+        # for i in range(args.target_num):
+        #     print(w_metrics[i])
+
         ind = ind + 1
 
     if args.with_tracking:
         wandb.log({'Table': table})
         wandb.finish()
-    
+
+    for i in range(args.target_num): # i is index of original watermark
+            for j in range(args.target_num): # j is index of checking watermark
+                print(np.mean(np.array(w_metrics[i][j])), end=" ")
+            print()
+
     print('done')
 
     """ Below is ordinary accuracy check part, just skip since our current interst is metric
@@ -273,7 +282,7 @@ def main(args):
         wandb.log({'w_metric_mean' : mean(w_metrics), 'w_metric_std' : stdev(w_metrics),
                    'w_metric_min' : min(w_metrics), 'w_metric_max' : max(w_metrics),
                    'clip_score_mean': mean(clip_scores), 'clip_score_std': stdev(clip_scores),
-                   'w_clip_score_mean': mean(clip_scores_w), 'w_clip_score_std': stdev(clip_scores_w),
+                   'w_clip_score_mean': mean(clip_scores_w), 'w_clip_score_std': stdev(clip_score s_w),
                    'auc': auc, 'acc':acc, 'TPR@1%FPR': low})
         wandb.finish()
     
