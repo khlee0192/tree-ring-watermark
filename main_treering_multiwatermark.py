@@ -80,6 +80,7 @@ def main(args):
     # if not os.path.exists(image_dir):
     #     os.makedirs(image_dir)
 
+    no_w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
     w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
 
     ind = 0
@@ -102,31 +103,43 @@ def main(args):
         ### generation
         # generation without watermarking
         set_random_seed(seed)
-        init_latents_no_w = pipe.get_random_latents()
-        init_latents_w = copy.deepcopy(init_latents_no_w)
 
-        # First generation
-        outputs_no_w, latents_no_w = pipe(
-            current_prompt,
-            num_images_per_prompt=args.num_images,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            height=args.image_length,
-            width=args.image_length,
-            latents=init_latents_no_w,
-            )
-        orig_image_no_w = outputs_no_w.images[0]
+        init_latents_no_w_array = []
+        init_latents_w_array = []
+        outputs_no_w_array = []
+        latents_no_w_array = []
+        orig_image_no_w_array = []
+
+        for i in range(args.target_num):
+            init_latents_no_w_array.append(pipe.get_random_latents())
+            init_latents_w_array.append(copy.deepcopy(init_latents_no_w_array[-1]))
+
+            # First generation
+            outputs_no_w, latents_no_w = pipe(
+                current_prompt,
+                num_images_per_prompt=args.num_images,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.num_inference_steps,
+                height=args.image_length,
+                width=args.image_length,
+                latents=init_latents_no_w_array[i],
+                )
+            orig_image_no_w = outputs_no_w.images[0]
+
+            outputs_no_w_array.append(outputs_no_w)
+            latents_no_w_array.append(latents_no_w)
+            orig_image_no_w_array.append(orig_image_no_w)
 
         # get watermarking mask
         watermarking_masks = []
         for i in range(args.target_num):
-            watermarking_masks.append(get_watermarking_mask(init_latents_no_w, args, device))
+            watermarking_masks.append(get_watermarking_mask(init_latents_no_w_array[i], args, device))
 
         # inject watermark
         init_latents_ws = []
         ffts = []
         for i in range(args.target_num):
-            temp_init_latents_w, temp_fft = inject_watermark(init_latents_w, watermarking_masks[i], gt_patches[i], args)
+            temp_init_latents_w, temp_fft = inject_watermark(init_latents_w_array[i], watermarking_masks[i], gt_patches[i], args)
             init_latents_ws.append(temp_init_latents_w)
             ffts.append(temp_fft)
 
@@ -146,30 +159,39 @@ def main(args):
 
         ### test watermark
         # distortion
-        orig_image_no_w_auged = image_distortion_single(orig_image_no_w, seed, args)
+        orig_image_no_w_auged_array = []
         orig_image_w_augeds = []
         for i in range(args.target_num):
+            orig_image_no_w_auged_array.append(image_distortion_single(orig_image_no_w_array[i], seed, args))
             orig_image_w_augeds.append(image_distortion_single(orig_image_ws[i], seed, args))
 
         ## SECTION : No Watermark
         # reverse img without watermarking (NO watermark)
-        img_no_w = transform_img(orig_image_no_w_auged).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        img_no_ws = []
+        image_latents_no_ws = []
+        reversed_latents_no_ws = []
+        for i in range(args.target_num):
 
-        # When we are only interested in w_metric
-        if args.edcorrector:
-            image_latents_no_w = pipe.edcorrector(img_no_w)
-        else:    
-            image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
+            img_no_w = transform_img(orig_image_no_w_auged_array[i]).unsqueeze(0).to(text_embeddings.dtype).to(device)
 
-        # forward_diffusion -> inversion
-        reversed_latents_no_w = pipe.forward_diffusion(
-            latents=image_latents_no_w,
-            text_embeddings=text_embeddings,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.test_num_inference_steps,
-            inverse_opt=not args.inv_naive,
-            inv_order=args.inv_order
-        )
+            # When we are only interested in w_metric
+            if args.edcorrector:
+                image_latents_no_w = pipe.edcorrector(img_no_w)
+            else:    
+                image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
+
+            # forward_diffusion -> inversion
+            reversed_latents_no_w = pipe.forward_diffusion(
+                latents=image_latents_no_w,
+                text_embeddings=text_embeddings,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.test_num_inference_steps,
+                inverse_opt=not args.inv_naive,
+                inv_order=args.inv_order
+            )
+            img_no_ws.append(img_no_w)
+            image_latents_no_ws.append(image_latents_no_w)
+            reversed_latents_no_ws.append(reversed_latents_no_w)
 
         ## SECTION : With Watermark, repeated with args.target_num times
         # reverse img with watermarking (With watermark, first)
@@ -200,13 +222,15 @@ def main(args):
         ## Evaluation Period
 
         # First will check no_w_metric
-        no_w_metric, _ = eval_watermark(reversed_latents_no_w, reversed_latents_no_w, watermarking_masks[0], gt_patches[0], args)
+        # TODO : currently working on single noise, I modified to array -> modify this
+        # no_w_metric, _ = eval_watermark(reversed_latents_no_w, reversed_latents_no_w, watermarking_masks[0], gt_patches[0], args)
+        
         # Second check w_metric of n*n cases
         for i in range(args.target_num): # i is index of original watermark
             for j in range(args.target_num): # j is index of checking watermark
-                no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_ws[i], watermarking_masks[j], gt_patches[j], args)
+                no_w_metric, w_metric = eval_watermark(reversed_latents_no_w[i], reversed_latents_ws[i], watermarking_masks[j], gt_patches[j], args)
                 w_metrics[i][j].append(w_metric)
-
+                no_w_metrics[i][j].append(no_w_metric)
         """
         results.append({
             'no_w1_metric': no_w_metric1,
@@ -261,9 +285,10 @@ def main(args):
         wandb.finish()
 
     for i in range(args.target_num): # i is index of original watermark
+            print(end="[")
             for j in range(args.target_num): # j is index of checking watermark
-                print(np.mean(np.array(w_metrics[i][j])), end=" ")
-            print()
+                print(np.mean(np.array(w_metrics[i][j])), end=", ")
+            print("],\n")
 
     print('done')
 

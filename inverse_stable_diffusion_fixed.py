@@ -320,39 +320,93 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                         if (i + 1 < len(timesteps_tensor)):
                                                         
                             y = latents.clone()
-                            # Line 4 ~ 11
-                            for step in range(i, i+2, 1):
-                                s = timesteps_tensor[step]
-                                r = timesteps_tensor[step + 1] if step+1 < len(timesteps_tensor) else 0
-                                t = s - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
+                            # # Line 4 ~ 11
+                            # for step in range(i, i+2, 1):
+                            #     s = timesteps_tensor[step]
+                            #     r = timesteps_tensor[step + 1] if step+1 < len(timesteps_tensor) else 0
+                            #     t = s - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
                                 
-                                lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
-                                sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                            #     lambda_s, lambda_t = self.scheduler.lambda_t[s], self.scheduler.lambda_t[t]
+                            #     sigma_s, sigma_t = self.scheduler.sigma_t[s], self.scheduler.sigma_t[t]
+                            #     h = lambda_t - lambda_s
+                            #     alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                            #     phi_1 = torch.expm1(-h)
+
+                            #     # expand the latents if we are doing classifier free guidance
+                            #     y_input = (
+                            #         torch.cat([y] * 2) if do_classifier_free_guidance else y
+                            #     )
+                            #     y_input = self.scheduler.scale_model_input(y_input, t)
+
+                            #     model_s = self.unet(y_input, s, encoder_hidden_states=text_embeddings).sample
+                            #     # perform guidance
+                            #     noise_pred = self.apply_guidance_scale(model_s, guidance_scale)    
+                            #     model_s = self.scheduler.convert_model_output(noise_pred, t, y) # heuristically t
+                                
+                            #     y_t = y
+                                
+                            #     # Line 5
+                            #     y = (sigma_s / sigma_t) * (y + alpha_t * phi_1 * model_s)
+                                
+                            #     # Line 6 ~ 10
+                            #     if inverse_opt:
+                            #         y = self.fixedpoint_correction(y, s, t, y_t, order=inv_order, r=r, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
+                            #                                        step_size=0.5, scheduler=True)
+                            
+                            # TODO: seongmin 1026
+                            s = timesteps_tensor[i]
+                            
+                            r = timesteps_tensor[i + 1] if i+1 < len(timesteps_tensor) else 0
+                            t = s - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
+                            #print(t,s,r)
+                            for tt in range(t,s,10):
+                                #tt = tt.cuda()
+                                ss = tt + 10
+                                #ss = tt + (s-t) / (101 - 1)
+                                # print(ss.device, "asdfsasdf")
+                                #print(self.schedule)
+                                lambda_s, lambda_t = self.scheduler.lambda_t[ss], self.scheduler.lambda_t[tt]
+                                sigma_s, sigma_t = self.scheduler.sigma_t[ss], self.scheduler.sigma_t[tt]
                                 h = lambda_t - lambda_s
-                                alpha_s, alpha_t = self.scheduler.alpha_t[s], self.scheduler.alpha_t[t]
+                                alpha_s, alpha_t = self.scheduler.alpha_t[ss], self.scheduler.alpha_t[tt]
                                 phi_1 = torch.expm1(-h)
 
                                 # expand the latents if we are doing classifier free guidance
                                 y_input = (
                                     torch.cat([y] * 2) if do_classifier_free_guidance else y
                                 )
-                                y_input = self.scheduler.scale_model_input(y_input, t)
+                                y_input = self.scheduler.scale_model_input(y_input, tt)
 
-                                model_s = self.unet(y_input, s, encoder_hidden_states=text_embeddings).sample
+                                model_s = self.unet(y_input, ss, encoder_hidden_states=text_embeddings).sample
                                 # perform guidance
                                 noise_pred = self.apply_guidance_scale(model_s, guidance_scale)    
-                                model_s = self.scheduler.convert_model_output(noise_pred, t, y) # heuristically t
-                                
-                                y_t = y
-                                
-                                # Line 5
-                                y = (sigma_s / sigma_t) * (y + alpha_t * phi_1 * model_s)
-                                
-                                # Line 6 ~ 10
-                                if inverse_opt:
-                                    y = self.fixedpoint_correction(y, s, t, y_t, order=inv_order, r=r, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
-                                                                   step_size=0.5, scheduler=True)
-                            
+                                model_s = self.scheduler.convert_model_output(noise_pred, tt, y) # heuristically t
+                                y = (sigma_s / sigma_t) * (y + alpha_t * phi_1 * model_s) # naive DDIM inv
+                            y_t = y.clone()
+                            for tt in range(s, r,10):
+                                #tt = tt.cuda()
+                                #ss = tt + (r-s) / (101 - 1)
+                                ss = tt + 10
+                                lambda_s, lambda_t = self.scheduler.lambda_t[ss], self.scheduler.lambda_t[tt]
+                                sigma_s, sigma_t = self.scheduler.sigma_t[ss], self.scheduler.sigma_t[tt]
+                                h = lambda_t - lambda_s
+                                alpha_s, alpha_t = self.scheduler.alpha_t[ss], self.scheduler.alpha_t[tt]
+                                phi_1 = torch.expm1(-h)
+
+                                # expand the latents if we are doing classifier free guidance
+                                y_input = (
+                                    torch.cat([y] * 2) if do_classifier_free_guidance else y
+                                )
+                                y_input = self.scheduler.scale_model_input(y_input, tt)
+
+                                model_s = self.unet(y_input, ss, encoder_hidden_states=text_embeddings).sample
+                                # perform guidance
+                                noise_pred = self.apply_guidance_scale(model_s, guidance_scale)    
+                                model_s = self.scheduler.convert_model_output(noise_pred, tt, y) # heuristically t
+                                y = (sigma_s / sigma_t) * (y + alpha_t * phi_1 * model_s) # naive DDIM inv
+                            # end: seongmin 1026
+
+
                             # Line 12 ~18
                             t = prev_timestep
                             s = timesteps_tensor[i]
@@ -383,8 +437,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                             model_r_output = self.scheduler.convert_model_output(noise_pred, r, y)   # Question Oct 15: 얘가 s 아니라 원래 r 인거 확인
                             
                             # Line 12
-                            latents = (sigma_s / sigma_t) * (latents + alpha_t * phi_1 * model_s_output)
-                            
+                            # latents = (sigma_s / sigma_t) * (latents + alpha_t * phi_1 * model_s_output)
+                            latents = y_t.clone()
                             # Line 13 ~ 17
                             if inverse_opt:
                                 latents = self.fixedpoint_correction(latents, s, t, x_t, order=inv_order, r=r,
@@ -560,9 +614,9 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
             raise NotImplementedError
     """
     @torch.inference_mode()
-    def fixedpoint_correction(self, x, s, t, x_t, r=None, order=1, n_iter=500, step_size=0.2, th=1e-4, 
+    def fixedpoint_correction(self, x, s, t, x_t, r=None, order=1, n_iter=500, step_size=0.1, th=1e-3, 
                                 model_s_output=None, model_r_output=None, text_embeddings=None, guidance_scale=3.0, 
-                                scheduler=False, factor=0.5, patience=20):
+                                scheduler=False, factor=0.5, patience=20, anchor=True):
         # 얘는 unet input 이 t 면 convert_model_output 도 t 여야 함.
         do_classifier_free_guidance = guidance_scale > 1.0
         if order==1:
@@ -593,8 +647,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 loss = torch.nn.functional.mse_loss(x_t_pred, x_t, reduction='sum')
                 if loss.item() < th:
                     break                
-                # if i%10 == 0 :
-                #    print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                if i%10 == 0 :
+                   print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
 
                 input = input - step_size * (x_t_pred- x_t) # forward step method
             
@@ -657,12 +711,14 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 # Check for convergence
                 if loss.item() < th:
                     break                
-                # if i%10 == 0 :
-                #    print(f"Fixed, 2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                if i%10 == 0 :
+                   print(f"Fixed, 2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
                 input = input - step_size * (x_t_pred- x_t)  # forward step method
 
                 if scheduler:
                     step_size = step_scheduler.step(loss)
+                if anchor:
+                    input = (1 - 1/(i+2)) * input + (1/(i+2))*x
             return input
         else:
             raise NotImplementedError
@@ -700,73 +756,17 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         optimizer = torch.optim.Adam([z], lr=0.12)
         lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=300)
 
-        t =self.scheduler.timesteps[-1]
-        scheduler = copy.deepcopy(self.scheduler)
-        unet = copy.deepcopy(self.unet).float()
-
-        lam = 1
-
-        """
-        z_output = copy.deepcopy(z)
-        z_output = scheduler.convert_model_output(z_output, t, z)
-        z_output = scheduler.step(z_output, t, z).prev_sample
-        """
-
         for i in self.progress_bar(range(300)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
-            
-            # if i%100==0:
-            # print(f"t: {0}, Iteration {i}, Loss: {loss.item()}")
-            
-            """
-            #if, with unet regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-            #noise = noise.detach()
-
-            loss = loss_function(x_pred, input) + lam * torch.sum(torch.abs(noise))
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.sum(torch.abs(noise)).detach()
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-                
-            """ if, with ddim regularizer
-            with torch.no_grad():
-                noise = unet(z, t, encoder_hidden_states=encoder_hidden_states.float()).sample
-                sample = scheduler.step(noise, t, z).prev_sample
-            sample = sample.detach()
-
-            loss = loss_function(x_pred, input) + lam * loss_function(z, sample)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = loss_function(z, sample).detach()
-
-            #losses.append(loss.detach().item())
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
-            
-            """#if, with z regularizer
-            
-            loss = loss_function(x_pred, input) + torch.norm(z)
-            loss1 = loss_function(x_pred, input).detach()
-            loss2 = torch.norm(z)
-
-            if i%1000==0:
-                print(f"t: {0}, Iteration {i}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
-            """
+ 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
-            #scheduler.step()
-            
-        #plt.plot(losses)
-        #return z.half() 
+
         return z
     
     @torch.inference_mode()
@@ -876,5 +876,5 @@ class StepScheduler(ReduceLROnPlateau):
             if self.verbose:
                 epoch_str = ("%.2f" if isinstance(epoch, float) else
                             "%.5d") % epoch
-                # print('Epoch {}: reducing learning rate'
-                #         ' to {:.4e}.'.format(epoch_str,new_lr))
+                print('Epoch {}: reducing learning rate'
+                        ' to {:.4e}.'.format(epoch_str,new_lr))
