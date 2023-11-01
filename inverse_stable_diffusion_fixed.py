@@ -754,17 +754,21 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         loss_function = torch.nn.MSELoss(reduction='sum')
         losses = []
 
+        lam = 2
 
         ## Adjusting Adam
         optimizer = torch.optim.Adam([z], lr=0.1)
         lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
 
-
         for i in self.progress_bar(range(100)):
-            x_pred = self.decode_image_for_gradient_float(z)
+            x_pred = self.decode_image_for_gradient_float(z) # x_pred = D(z)
+            z_pred = self.get_image_latents_for_gradient_float(x_pred)
 
             #if, without regularizer
-            loss = loss_function(x_pred, input)
+            #loss = loss_function(x_pred, input) # ||input - D(z)|| + lam * ||z_pred - E(x_pred)||
+
+            # if, with regularizer
+            loss = loss_function(x_pred, input) + lam * loss_function(z_pred, z)
 
             optimizer.zero_grad()
             loss.backward()
@@ -791,6 +795,19 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         ]
         image = torch.cat(image, dim=0)
         return image
+
+    def get_image_latents_for_gradient_float(self, image, sample=True, rng_generator=None):
+        '''
+        Input : image
+        Output : latents, which is encoded image
+        '''
+        encoding_dist = self.vae.encode(image).latent_dist
+        if sample:
+            encoding = encoding_dist.sample(generator=rng_generator)
+        else:
+            encoding = encoding_dist.mode()
+        latents = encoding * 0.18215
+        return latents
 
     @torch.inference_mode()
     def torch_to_numpy(self, image):
