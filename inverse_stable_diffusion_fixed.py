@@ -443,7 +443,7 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                             if inverse_opt:
                                 latents = self.fixedpoint_correction(latents, s, t, x_t, order=inv_order, r=r,
                                                                     model_s_output=model_s_output, model_r_output=model_r_output, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
-                                                                    step_size=0.5, scheduler=True)
+                                                                    step_size=10/t, scheduler=True)
                             
                         # Line 19 ~
                         elif (i + 1 == len(timesteps_tensor)):
@@ -473,7 +473,7 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                             # Line 20 ~ 23
                             if (inverse_opt):
                                 latents = self.fixedpoint_correction(latents, s, t, x_t, order=1, text_embeddings=text_embeddings, guidance_scale=guidance_scale,
-                                                                     step_size=0.5, scheduler=True)     
+                                                                     step_size=10/t, scheduler=True)     
                         else:
                             raise Exception("Index Error!")
                 else:
@@ -616,16 +616,19 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
     @torch.inference_mode()
     def fixedpoint_correction(self, x, s, t, x_t, r=None, order=1, n_iter=500, step_size=0.1, th=1e-3, 
                                 model_s_output=None, model_r_output=None, text_embeddings=None, guidance_scale=3.0, 
-                                scheduler=False, factor=0.5, patience=20, anchor=True):
+                                scheduler=False, factor=0.5, patience=20, anchor=False, warmup=True, warmup_time=20):
         # 얘는 unet input 이 t 면 convert_model_output 도 t 여야 함.
         do_classifier_free_guidance = guidance_scale > 1.0
         if order==1:
             input = x.clone()
-
+            original_step_size = step_size
             if scheduler:
                 step_scheduler = StepScheduler(current_lr=step_size, factor=factor, patience=patience, verbose=True)
 
             for i in range(n_iter):
+                if warmup:
+                    if i < warmup_time:
+                        step_size = original_step_size * (i+1)/(warmup_time)
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = (torch.cat([input] * 2) if do_classifier_free_guidance else input)
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t) # 항등함수
@@ -647,11 +650,12 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 loss = torch.nn.functional.mse_loss(x_t_pred, x_t, reduction='sum')
                 if loss.item() < th:
                     break                
-                if i%10 == 0 :
-                   print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%10 == 0 :
+                #    print(f"Fixed, 1st, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
 
                 input = input - step_size * (x_t_pred- x_t) # forward step method
-            
+                
+
                 if scheduler:
                     step_size = step_scheduler.step(loss)
 
@@ -660,7 +664,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         elif order==2:
             assert r is not None
             input = x.clone()
-
+            original_step_size = step_size
+            
             if scheduler:
                 step_scheduler = StepScheduler(current_lr=step_size, factor=factor, patience=patience, verbose=True)
 
@@ -683,6 +688,11 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
             phi_1 = torch.expm1(-h)
             
             for i in range(n_iter):
+                # warmup
+                if warmup:
+                    if i < warmup_time:
+                        step_size = original_step_size * (i+1)/(warmup_time)
+
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = (
                     torch.cat([input] * 2) if do_classifier_free_guidance else input
@@ -711,8 +721,8 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
                 # Check for convergence
                 if loss.item() < th:
                     break                
-                if i%10 == 0 :
-                   print(f"Fixed, 2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
+                # if i%10 == 0 :
+                #    print(f"Fixed, 2nd, t: {t:.3f}, Iteration {i}, Loss: {loss.item():.6f}")
                 input = input - step_size * (x_t_pred- x_t)  # forward step method
 
                 if scheduler:
@@ -744,24 +754,18 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
         loss_function = torch.nn.MSELoss(reduction='sum')
         losses = []
 
-        ## SGD : improvement with 63.75% accuracy
-        # optimizer = torch.optim.SGD([z], lr=0.01, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 1000, 3000], gamma=0.1)
-        
-        ## Current best
-        #optimizer = torch.optim.Adam([z], lr=1e-3)
 
         ## Adjusting Adam
-        optimizer = torch.optim.Adam([z], lr=0.12)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=300)
+        optimizer = torch.optim.Adam([z], lr=0.1)
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
 
-        for i in self.progress_bar(range(300)):
+
+        for i in self.progress_bar(range(100)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             #if, without regularizer
             loss = loss_function(x_pred, input)
- 
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -876,5 +880,5 @@ class StepScheduler(ReduceLROnPlateau):
             if self.verbose:
                 epoch_str = ("%.2f" if isinstance(epoch, float) else
                             "%.5d") % epoch
-                print('Epoch {}: reducing learning rate'
-                        ' to {:.4e}.'.format(epoch_str,new_lr))
+                # print('Epoch {}: reducing learning rate'
+                #         ' to {:.4e}.'.format(epoch_str,new_lr))

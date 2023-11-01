@@ -25,7 +25,7 @@ def main(args):
     wandb.config.update(args)
     #table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'gen_w2', 'reverse_no_w', 'reverse_w1', 'reverse_w2', 'prompt', 'no_w_metric', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
     #table = wandb.Table(columns=['prompt', 'no_w_metric1', 'no_w_metric2', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
-
+    table = wandb.Table(columns=['prompt', 'w_metric11', 'w_metric12', 'w_metric13', 'w_metric21', 'w_metric22', 'w_metric23', 'w_metric31', 'w_metric32', 'w_metric33'])
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -80,8 +80,11 @@ def main(args):
     # if not os.path.exists(image_dir):
     #     os.makedirs(image_dir)
 
-    no_w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
-    w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
+    # no_w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
+    # w_metrics = [[[] for i in range(args.target_num) ] for _ in range(args.target_num)]
+
+    no_w_metrics = [[None, None, None],[None, None, None],[None, None, None],]
+    w_metrics = [[None, None, None],[None, None, None],[None, None, None],]
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
@@ -167,31 +170,34 @@ def main(args):
 
         ## SECTION : No Watermark
         # reverse img without watermarking (NO watermark)
-        img_no_ws = []
-        image_latents_no_ws = []
-        reversed_latents_no_ws = []
-        for i in range(args.target_num):
+        # img_no_ws = []
+        # image_latents_no_ws = []
+        # reversed_latents_no_ws = []
+        # for i in range(args.target_num):
 
-            img_no_w = transform_img(orig_image_no_w_auged_array[i]).unsqueeze(0).to(text_embeddings.dtype).to(device)
+        #     img_no_w = transform_img(orig_image_no_w_auged_array[i]).unsqueeze(0).to(text_embeddings.dtype).to(device)
 
-            # When we are only interested in w_metric
-            if args.edcorrector:
-                image_latents_no_w = pipe.edcorrector(img_no_w)
-            else:    
-                image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
+        #     # When we are only interested in w_metric
+        #     if args.edcorrector:
+        #         image_latents_no_w = pipe.edcorrector(img_no_w)
+        #     else:    
+        #         image_latents_no_w = pipe.get_image_latents(img_no_w, sample=False)
 
-            # forward_diffusion -> inversion
-            reversed_latents_no_w = pipe.forward_diffusion(
-                latents=image_latents_no_w,
-                text_embeddings=text_embeddings,
-                guidance_scale=args.guidance_scale,
-                num_inference_steps=args.test_num_inference_steps,
-                inverse_opt=not args.inv_naive,
-                inv_order=args.inv_order
-            )
-            img_no_ws.append(img_no_w)
-            image_latents_no_ws.append(image_latents_no_w)
-            reversed_latents_no_ws.append(reversed_latents_no_w)
+        #     # forward_diffusion -> inversion
+        #     reversed_latents_no_w = pipe.forward_diffusion(
+        #         latents=image_latents_no_w,
+        #         text_embeddings=text_embeddings,
+        #         guidance_scale=args.guidance_scale,
+        #         num_inference_steps=args.test_num_inference_steps,
+        #         inverse_opt=not args.inv_naive,
+        #         inv_order=args.inv_order
+        #     )
+        #     img_no_ws.append(img_no_w)
+        #     image_latents_no_ws.append(image_latents_no_w)
+        #     reversed_latents_no_ws.append(reversed_latents_no_w)
+
+        # when above section is not run,
+        reversed_latents_no_ws = init_latents_ws
 
         ## SECTION : With Watermark, repeated with args.target_num times
         # reverse img with watermarking (With watermark, first)
@@ -228,9 +234,22 @@ def main(args):
         # Second check w_metric of n*n cases
         for i in range(args.target_num): # i is index of original watermark
             for j in range(args.target_num): # j is index of checking watermark
-                no_w_metric, w_metric = eval_watermark(reversed_latents_no_w[i], reversed_latents_ws[i], watermarking_masks[j], gt_patches[j], args)
-                w_metrics[i][j].append(w_metric)
-                no_w_metrics[i][j].append(no_w_metric)
+                no_w_metric, w_metric = eval_watermark(reversed_latents_no_ws[i], reversed_latents_ws[i], watermarking_masks[j], gt_patches[j], args)
+                # w_metrics[i][j].append(w_metric)
+                # no_w_metrics[i][j].append(no_w_metric)
+                w_metrics[i][j] = w_metric
+                no_w_metrics[i][j] = no_w_metric
+
+        if args.with_tracking:
+            if (args.reference_model is not None) and (i < args.max_num_log_image):
+                table.add_data(current_prompt,
+                               w_metrics[0][0], w_metrics[0][1], w_metrics[0][2], w_metrics[1][0], w_metrics[1][1], w_metrics[1][2], w_metrics[2][0], w_metrics[2][1], w_metrics[2][2],
+                               )
+            else:
+                table.add_data(current_prompt,
+                               no_w_metrics[0][0], no_w_metrics[0][1], no_w_metrics[0][2], no_w_metrics[1][0], no_w_metrics[1][1], no_w_metrics[1][2], no_w_metrics[2][0], no_w_metrics[2][1], no_w_metrics[2][2],
+                )
+
         """
         results.append({
             'no_w1_metric': no_w_metric1,
@@ -247,7 +266,7 @@ def main(args):
         w_metrics22.append(w_metric22)
         w_metrics12.append(w_metric12)
         w_metrics21.append(w_metric21)
-
+    
         if args.with_tracking:
             if (args.reference_model is not None) and (i < args.max_num_log_image):
                 table.add_data(current_prompt,
@@ -280,15 +299,21 @@ def main(args):
 
         ind = ind + 1
 
-    if args.with_tracking:
-        wandb.log({'Table': table})
-        wandb.finish()
-
     for i in range(args.target_num): # i is index of original watermark
             print(end="[")
             for j in range(args.target_num): # j is index of checking watermark
                 print(np.mean(np.array(w_metrics[i][j])), end=", ")
             print("],\n")
+
+    for i in range(args.target_num): # i is index of original watermark
+            print(end="[")
+            for j in range(args.target_num): # j is index of checking watermark
+                print(np.std(np.array(w_metrics[i][j])), end=", ")
+            print("],\n")
+
+    if args.with_tracking:
+        wandb.log({'Table': table})
+        wandb.finish()
 
     print('done')
 
@@ -334,7 +359,7 @@ if __name__ == '__main__':
     parser.add_argument('--test_num_inference_steps', default=None, type=int)
     parser.add_argument('--reference_model', default=None)
     parser.add_argument('--reference_model_pretrain', default=None)
-    parser.add_argument('--max_num_log_image', default=100, type=int)
+    parser.add_argument('--max_num_log_image', default=1000, type=int)
     parser.add_argument('--gen_seed', default=0, type=int)
 
     # watermark

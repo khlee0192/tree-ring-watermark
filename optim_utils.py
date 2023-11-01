@@ -209,9 +209,9 @@ def get_watermarking_pattern(pipe, args, device, shape=None, option=None):
         gt_patch_tmp = copy.deepcopy(gt_patch)
         keys = torch.Tensor(
             [[1.2, 1.2, 1.5, 0.8, 0.4, 0.9],
-            [1.2, 1.0, 1.2, 1.1, 0.8, 0.7],
+            [1.2, 0.9, 1.2, 1.1, 0.8, 0.8],
             [1.3, 1.1, 0.8, 1.2, 0.9, 0.7],
-            [1.4, 1.0, 1.4, 1.2, 0.9, 0.7],
+            [1.2, 1.0, 0.9, 0.8, 1.2, 0.9],
             ]
         )
         const = 100
