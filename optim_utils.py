@@ -207,15 +207,24 @@ def get_watermarking_pattern(pipe, args, device, shape=None, option=None):
         gt_patch = torch.fft.fftshift(torch.fft.fft2(gt_init), dim=(-1, -2))
 
         gt_patch_tmp = copy.deepcopy(gt_patch)
+        # keys = torch.Tensor(
+        #     [[1.2, 1.2, 1.5, 0.8, 0.4, 0.9],
+        #     [1.2, 0.9, 1.2, 1.1, 0.8, 0.8],
+        #     [1.3, 1.1, 0.8, 1.2, 0.9, 0.7],
+        #     [1.2, 1.0, 0.9, 0.8, 1.2, 0.9],
+        #     ]
+        # )
+        # const = 100
+        
         keys = torch.Tensor(
-            [[1.2, 1.2, 1.5, 0.8, 0.4, 0.9],
-            [1.2, 0.9, 1.2, 1.1, 0.8, 0.8],
-            [1.3, 1.1, 0.8, 1.2, 0.9, 0.7],
-            [1.2, 1.0, 0.9, 0.8, 1.2, 0.9],
+            [[1.1, 0.8, 1.2, 0.9, 0.6, 1.4],
+             [1.1, 0.6, 1.1, 1.2, 0.8, 1.2],
+             [1.2, 0.8, 1.2, 1.1, 0.6, 1.1],
+             [0.7, 1.2, 1.3, 0.8, 0.9, 1.1]
             ]
         )
-        const = 100
-        
+        const = 80
+
         for i in range(args.w_radius, 0, -1):
             tmp_mask = circle_mask(gt_init.shape[-1], r=i)
             tmp_mask = torch.tensor(tmp_mask).to(device)

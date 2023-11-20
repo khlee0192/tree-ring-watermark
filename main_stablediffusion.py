@@ -10,8 +10,8 @@ import torch
 from torchvision.transforms.functional import to_pil_image, rgb_to_grayscale
 import torchvision.transforms as transforms
 
-from inverse_stable_diffusion import InversableStableDiffusionPipeline2 
-#from inverse_stable_diffusion_fixed import InversableStableDiffusionPipeline2 
+#from inverse_stable_diffusion import InversableStableDiffusionPipeline2 
+from inverse_stable_diffusion_fixed import InversableStableDiffusionPipeline2 
 from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
@@ -140,7 +140,7 @@ def main(args):
     table = None
     if args.with_tracking:
         #wandb.init(entity='exactdpminversion', project='stable_diffusion', name=args.run_name)
-        wandb.init(project='Hyperparameter_tuning_order2', name=args.run_name)
+        wandb.init(entity='khlee0192', project='ed_tuning', name=args.run_name)
         wandb.config.update(args)
         table = wandb.Table(columns=['image','recon_image','n2n_error','i2i_error', 'prompt'])
     
@@ -197,7 +197,7 @@ def main(args):
 
     ind = 0
     for i in tqdm(range(args.start, args.end)):
-        if ind==2: break
+        if ind==5: break
         
         seed = i + args.gen_seed
         current_prompt = dataset[i][prompt_key]

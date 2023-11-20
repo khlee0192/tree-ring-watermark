@@ -762,18 +762,20 @@ class InversableStableDiffusionPipeline2(ModifiedStableDiffusionPipeline):
 
         for i in self.progress_bar(range(100)):
             x_pred = self.decode_image_for_gradient_float(z) # x_pred = D(z)
-            z_pred = self.get_image_latents_for_gradient_float(x_pred)
+            #z_pred = self.get_image_latents_for_gradient_float(x_pred)
 
             #if, without regularizer
-            #loss = loss_function(x_pred, input) # ||input - D(z)|| + lam * ||z_pred - E(x_pred)||
+            loss = loss_function(x_pred, input) # ||input - D(z)|| + lam * ||z_pred - E(x_pred)||
 
             # if, with regularizer
-            loss = loss_function(x_pred, input) + lam * loss_function(z_pred, z)
+            #loss = loss_function(x_pred, input) + lam * loss_function(z_pred, z)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
+
+            # losses.append(loss.item())
 
         return z
     

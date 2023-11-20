@@ -25,7 +25,7 @@ def main(args):
     wandb.config.update(args)
     #table = wandb.Table(columns=['gen_no_w', 'gen_w1', 'gen_w2', 'reverse_no_w', 'reverse_w1', 'reverse_w2', 'prompt', 'no_w_metric', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
     #table = wandb.Table(columns=['prompt', 'no_w_metric1', 'no_w_metric2', 'w_metric11', 'w_metric22', 'w_metric12', 'w_metric21'])
-    table = wandb.Table(columns=['prompt', 'w_metric11', 'w_metric12', 'w_metric13', 'w_metric21', 'w_metric22', 'w_metric23', 'w_metric31', 'w_metric32', 'w_metric33'])
+    table = wandb.Table(columns=['prompt', 'gen_now1', 'gen_now2', 'gen_now3', 'gen_w1', 'gen_w2', 'gen_w3', 'w_metric11', 'w_metric12', 'w_metric13', 'w_metric21', 'w_metric22', 'w_metric23', 'w_metric31', 'w_metric32', 'w_metric33'])
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -36,7 +36,7 @@ def main(args):
         beta_start = 0.00085,
         num_train_timesteps=1000,
         prediction_type="epsilon",
-        steps_offset = 1, #CHECK
+        #steps_offset = 1, #CHECK
         trained_betas = None,
         solver_order = args.solver_order,
         # set_alpha_to_one = False,
@@ -243,6 +243,8 @@ def main(args):
         if args.with_tracking:
             if (args.reference_model is not None) and (i < args.max_num_log_image):
                 table.add_data(current_prompt,
+                               wandb.Image(orig_image_no_w_array[0]), wandb.Image(orig_image_no_w_array[1]), wandb.Image(orig_image_no_w_array[2]), 
+                               wandb.Image(orig_image_ws[0]), wandb.Image(orig_image_ws[1]), wandb.Image(orig_image_ws[2]), 
                                w_metrics[0][0], w_metrics[0][1], w_metrics[0][2], w_metrics[1][0], w_metrics[1][1], w_metrics[1][2], w_metrics[2][0], w_metrics[2][1], w_metrics[2][2],
                                )
             else:
@@ -250,52 +252,45 @@ def main(args):
                                no_w_metrics[0][0], no_w_metrics[0][1], no_w_metrics[0][2], no_w_metrics[1][0], no_w_metrics[1][1], no_w_metrics[1][2], no_w_metrics[2][0], no_w_metrics[2][1], no_w_metrics[2][2],
                 )
 
-        """
-        results.append({
-            'no_w1_metric': no_w_metric1,
-            'no_w2_metric': no_w_metric2,
-            'w_metric11': w_metric11,
-            'w_metric22': w_metric22,
-            'w_metric12': w_metric12,
-            'w_metric21': w_metric21,
-        })
 
-        no_w_metrics1.append(no_w_metric1)
-        no_w_metrics2.append(no_w_metric2)
-        w_metrics11.append(w_metric11)
-        w_metrics22.append(w_metric22)
-        w_metrics12.append(w_metric12)
-        w_metrics21.append(w_metric21)
-    
-        if args.with_tracking:
-            if (args.reference_model is not None) and (i < args.max_num_log_image):
-                table.add_data(current_prompt,
-                               no_w_metric1, no_w_metric2, w_metric11, w_metric22, w_metric12, w_metric21,
-                               )
+        plot = False
+
+        if plot:
+            if args.inv_naive:
+                orig_image_no_w_array[0].save("1-1.pdf")
+                orig_image_no_w_array[1].save("1-2.pdf")
+                orig_image_no_w_array[2].save("1-3.pdf")
+                orig_image_ws[0].save("2-1.pdf")
+                orig_image_ws[1].save("2-2.pdf")
+                orig_image_ws[2].save("2-3.pdf")
+
+                torch.save(ffts[0][0][3], "orig_wm_cut_0.pt")
+                torch.save(ffts[1][0][3], "orig_wm_cut_1.pt")
+                torch.save(ffts[2][0][3], "orig_wm_cut_2.pt")
+
+                if args.edcorrector:
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[0][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_0.pt")
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[1][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_1.pt")
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[2][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_2.pt")
+                else:
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[0][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_0.pt")
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[1][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_1.pt")
+                    target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[2][0][3]), dim=(-1, -2))
+                    torch.save(target, "naive_reversed_wm_cut_with_ed_2.pt")
+
+
             else:
-                table.add_data(current_prompt,
-                               no_w_metric1, no_w_metric2, w_metric11, w_metric22, w_metric12, w_metric21,
-                            )
-        """
-
-        # plt.figure()
-        # plt.imshow(orig_image_no_w)
-        # plt.show()
-
-        # plt.figure(figsize=(6*args.target_num, 12))
-        # for i in range(0, args.target_num):
-        #     img_title = "Image generated with watermark of " + "A" + str(i)
-        #     noise_title = "Noise reconstructed with watermark of " + "A" + str(i)
-        #     plt.subplot(2, args.target_num, 2*i+1)
-        #     plt.imshow(orig_image_ws[i])
-        #     plt.title(img_title)
-        #     plt.subplot(2, args.target_num, 2*i+2)
-        #     plt.imshow(torch.abs(ffts[i])[0][args.w_channel].detach().cpu())
-        #     plt.title(noise_title)
-        # plt.show()
-
-        # for i in range(args.target_num):
-        #     print(w_metrics[i])
+                target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[0][0][3]), dim=(-1, -2))
+                torch.save(target, "ours_reversed_wm_cut_0.pt")
+                target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[1][0][3]), dim=(-1, -2))
+                torch.save(target, "ours_reversed_wm_cut_1.pt")
+                target = torch.fft.fftshift(torch.fft.fft2(reversed_latents_ws[2][0][3]), dim=(-1, -2))
+                torch.save(target, "ours_reversed_wm_cut_2.pt")
 
         ind = ind + 1
 

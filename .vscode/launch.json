@@ -12,13 +12,26 @@
             "program": "${file}",
             "args": [
                 //fixed
-                "--start", "0",
+                "--start", "500",
                 "--end", "1000",
-                "--length", "10",
-                "--target_num", "3",
+
                 "--reference_model", "ViT-g-14",
                 "--reference_model_pretrain", "laion2b_s12b_b42k",
                 "--with_tracking",
+                
+                //experiment
+                //"--run_name", "test on 5, o ed (lam 2)/ o exact",
+                "--run_name", "detection_newsetup_naive_withed",
+                "--solver_order", "2",
+                "--num_inference_steps", "10",
+                //"--exact_inversion",
+
+                "--edcorrector",
+                "--inv_naive",
+
+                // for multi watermark
+                "--length", "100",
+                "--target_num", "3",
                 //watermark
                 "--w_channel", "3",
                 "--w_pattern", "ring",
@@ -26,14 +39,7 @@
                 // distortion
                 // "--crop_ratio", "0.75",
                 // "--crop_scale", "0.75",
-                //experiment
-                "--run_name", "naive_10prompt_test",
-                "--solver_order", "2",
-                "--num_inference_steps", "10",
-                //"--exact_inversion",
 
-                //"--edcorrector",
-                "--inv_naive",
 
                 "--inv_order", "2",
                 "--test_num_inference_steps", "10",
