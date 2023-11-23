@@ -12,7 +12,7 @@
             "program": "${file}",
             "args": [
                 //fixed
-                "--start", "500",
+                "--start", "500", // plot : 571, status : x/x/o
                 "--end", "1000",
 
                 "--reference_model", "ViT-g-14",
@@ -21,13 +21,13 @@
                 
                 //experiment
                 //"--run_name", "test on 5, o ed (lam 2)/ o exact",
-                "--run_name", "detection_newsetup_naive_withed",
+                "--run_name", "detection_newsetup_ours_withed",
                 "--solver_order", "2",
                 "--num_inference_steps", "10",
                 //"--exact_inversion",
 
                 "--edcorrector",
-                "--inv_naive",
+                //"--inv_naive",
 
                 // for multi watermark
                 "--length", "100",

@@ -253,7 +253,7 @@ def main(args):
                 )
 
 
-        plot = False
+        plot = True
 
         if plot:
             if args.inv_naive:
